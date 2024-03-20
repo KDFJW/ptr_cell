@@ -1,0 +1,5 @@
+target/
+
+# Protect against accidental copies
+:w
+:
