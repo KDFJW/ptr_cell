@@ -276,7 +276,40 @@ impl<T> PtrCell<T> {
     #[inline(always)]
     pub fn new(slot: Option<T>, order: Semantics) -> Self {
         let leaked = Self::heap_leak(slot);
-        let value = std::sync::atomic::AtomicPtr::new(leaked);
+
+        unsafe { Self::from_ptr(leaked, order) }
+    }
+
+    /// Constructs a cell that owns the allocation to which `ptr` points. The cell will use `order`
+    /// as its memory ordering
+    ///
+    /// # Safety
+    /// The memory pointed to by `ptr` must have been allocated in accordance with the [memory
+    /// layout][1] used by [`Box`]
+    ///
+    /// Dereferencing `ptr` after this function has been called can result in undefined behavior
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// // Initialize a sample number
+    /// const VALUE: Option<u16> = Some(0xFAA);
+    ///
+    /// // Allocate the number on the heap and get a pointer to the allocation
+    /// let value_ptr = ptr_cell::PtrCell::heap_leak(VALUE);
+    ///
+    /// // Construct a cell from the pointer
+    /// let ordered = ptr_cell::Semantics::Ordered;
+    /// let cell = unsafe { ptr_cell::PtrCell::from_ptr(value_ptr, ordered) };
+    ///
+    /// // Take the number out
+    /// assert_eq!(cell.take(), VALUE)
+    /// ```
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
+    #[inline(always)]
+    const unsafe fn from_ptr(ptr: *mut T, order: Semantics) -> Self {
+        let value = std::sync::atomic::AtomicPtr::new(ptr);
 
         Self { value, order }
     }
