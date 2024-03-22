@@ -283,6 +283,9 @@ impl<T> PtrCell<T> {
     /// Constructs a cell that owns the allocation to which `ptr` points. The cell will use `order`
     /// as its memory ordering
     ///
+    /// Passing in a null `ptr` is perfectly valid, as it represents [`None`]. Conversely, a
+    /// non-null `ptr` is treated as [`Some`]
+    ///
     /// # Safety
     /// The memory pointed to by `ptr` must have been allocated in accordance with the [memory
     /// layout][1] used by [`Box`]
