@@ -57,7 +57,7 @@
 //!     const VALUES: [u8; 11] = [47, 12, 88, 45, 67, 34, 78, 90, 11, 77, 33];
 //!
 //!     // Construct a cell to hold the current maximum value
-//!     let cell = ptr_cell::PtrCell::new(None, ptr_cell::Semantics::Coupled);
+//!     let cell = ptr_cell::PtrCell::new(None, ptr_cell::Semantics::Relaxed);
 //!     let maximum = std::sync::Arc::new(cell);
 //!
 //!     // Slice the array in two
