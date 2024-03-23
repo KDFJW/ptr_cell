@@ -120,9 +120,7 @@
 //! [3]: https://en.wikipedia.org/wiki/Lock_(computer_science)
 //! [4]: https://docs.rust-embedded.org/book/intro/no-std.html
 
-// You WILL use core and you WILL like it
 #![no_std]
-// You WILL document your code and you WILL like it
 #![warn(missing_docs)]
 
 extern crate alloc;
