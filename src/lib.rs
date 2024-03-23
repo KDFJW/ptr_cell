@@ -44,8 +44,8 @@
 //!
 //! `Coupled` is what you'd typically use. However, other orderings have their use cases too. For
 //! example, the `Relaxed` semantics could be useful when the operations are already ordered through
-//! other means, like [fences](std::sync::atomic::fence). As always, the documentation for each
-//! item contains more details
+//! other means, like [fences](std::sync::atomic::fence). As always, the documentation for each item
+//! contains more details
 //!
 //! ## Examples
 //!
