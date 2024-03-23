@@ -1,10 +1,11 @@
 //! # Simple thread-safe cell
 //!
-//! [`PtrCell`] is an atomic cell type that allows safe, concurrent access to shared data. No [data
-//! races][1], no [nasal demons (UB)][2], and most importantly, no [locks][3]
-//!
+//! [`PtrCell`] is an atomic cell type that allows safe, concurrent access to shared data. No
+//! [`std`], no [data races][1], no [nasal demons (UB)][2], and most importantly, no [locks][3]
+//
 //! This type is only useful in scenarios where you need to update a shared value by moving in and
-//! out of it. If you want to concurrently update a value through mutable references, take a look at
+//! out of it. If you want to concurrently update a value through mutable references and don't
+//! require support for environments without the standard library ([`no_std`][4]), take a look at
 //! the standard [`Mutex`](std::sync::Mutex) and [`RwLock`](std::sync::RwLock) instead
 //!
 //! #### Offers:
@@ -43,8 +44,8 @@
 //!
 //! `Coupled` is what you'd typically use. However, other orderings have their use cases too. For
 //! example, the `Relaxed` semantics could be useful when the operations are already ordered through
-//! other means, like [fences](std::sync::atomic::fence). As always, the documentation for each item
-//! contains more details
+//! other means, like [fences](std::sync::atomic::fence). As always, the documentation for each
+//! item contains more details
 //!
 //! ## Examples
 //!
@@ -117,6 +118,7 @@
 //! [1]: https://en.wikipedia.org/wiki/Race_condition#In_software
 //! [2]: https://en.wikipedia.org/wiki/Undefined_behavior
 //! [3]: https://en.wikipedia.org/wiki/Lock_(computer_science)
+//! [4]: https://docs.rust-embedded.org/book/intro/no-std.html
 
 // You WILL document your code and you WILL like it
 #![warn(missing_docs)]
