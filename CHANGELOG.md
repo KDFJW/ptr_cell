@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 - 3/23/24
+
+### Added
+- `PtrCell::map_owner`: Method for linked lists based on `PtrCell`
+
 ## 1.0.1 - 3/22/24
 
 ### Changed

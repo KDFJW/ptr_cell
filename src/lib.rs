@@ -185,6 +185,93 @@ impl<T> PtrCell<T> {
         non_null(leaked).map(|ptr| unsafe { &mut *ptr })
     }
 
+    /// Replaces the cell's value with a new one, constructed from the cell itself using the
+    /// provided `new` function
+    ///
+    /// Despite the operation being somewhat complex, it's still entirely atomic. This allows it to
+    /// be safely used in implementations of shared linked-list-like data structures
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// fn main() {
+    ///     // Initialize a sample sentence
+    ///     const SENTENCE: &str = "Hachó en México";
+    ///
+    ///     // Construct an empty cell
+    ///     let cell = ptr_cell::PtrCell::default();
+    ///
+    ///     // "encode" the sentence into the cell
+    ///     for word in SENTENCE.split_whitespace().rev() {
+    ///         // Make the new node set its value to the current word
+    ///         let value = word;
+    ///
+    ///         // Replace the node with a new one pointing to it
+    ///         cell.map_owner(|next| Node { value, next });
+    ///     }
+    ///
+    ///     // Take the first node out of the cell and destructure it
+    ///     let Node { value, mut next } = cell
+    ///         .take()
+    ///         .expect("Values should have been inserted into the cell");
+    ///
+    ///     // Initialize the "decoded" sentence with the first word
+    ///     let mut decoded = value.to_string();
+    ///
+    ///     // Iterate over each remaining node
+    ///     while let Some(node) = next.take() {
+    ///         // Append the word to the sentence
+    ///         decoded += " ";
+    ///         decoded += node.value;
+    ///
+    ///         // Set the value to process next
+    ///         next = node.next
+    ///     }
+    ///
+    ///     assert_eq!(SENTENCE, decoded)
+    /// }
+    ///
+    /// /// Unit of a linked list
+    /// struct Node<T> {
+    ///     pub value: T,
+    ///     pub next: ptr_cell::PtrCell<Self>,
+    /// }
+    ///
+    /// impl<T> AsMut<ptr_cell::PtrCell<Self>> for Node<T> {
+    ///     fn as_mut(&mut self) -> &mut ptr_cell::PtrCell<Self> {
+    ///         &mut self.next
+    ///     }
+    /// }
+    /// ```
+    pub fn map_owner<F>(&self, new: F)
+    where
+        F: FnOnce(Self) -> T,
+        T: AsMut<Self>,
+    {
+        let value_ptr = self.value.load(self.order.read());
+        let value = unsafe { Self::from_ptr(value_ptr, self.order) };
+
+        let owner_slot = Some(new(value));
+        let owner_ptr = Self::heap_leak(owner_slot);
+
+        let owner = unsafe { &mut *owner_ptr };
+        let value_ptr = owner.as_mut().value.get_mut();
+
+        loop {
+            let value_ptr_result = self.value.compare_exchange_weak(
+                *value_ptr,
+                owner_ptr,
+                self.order.read_write(),
+                self.order.read(),
+            );
+
+            match value_ptr_result {
+                Ok(_same) => break,
+                Err(modified) => *value_ptr = modified,
+            }
+        }
+    }
+
     /// Returns the cell's value, leaving [`None`] in its place
     ///
     /// This is an alias for `self.replace(None)`
@@ -276,7 +363,43 @@ impl<T> PtrCell<T> {
     #[inline(always)]
     pub fn new(slot: Option<T>, order: Semantics) -> Self {
         let leaked = Self::heap_leak(slot);
-        let value = std::sync::atomic::AtomicPtr::new(leaked);
+
+        unsafe { Self::from_ptr(leaked, order) }
+    }
+
+    /// Constructs a cell that owns the allocation to which `ptr` points. The cell will use `order`
+    /// as its memory ordering
+    ///
+    /// Passing in a null `ptr` is perfectly valid, as it represents [`None`]. Conversely, a
+    /// non-null `ptr` is treated as [`Some`]
+    ///
+    /// # Safety
+    /// The memory pointed to by `ptr` must have been allocated in accordance with the [memory
+    /// layout][1] used by [`Box`]
+    ///
+    /// Dereferencing `ptr` after this function has been called can result in undefined behavior
+    ///
+    /// # Usage
+    ///
+    /// ```rust, ignore
+    /// // Initialize a sample number
+    /// const VALUE: Option<u16> = Some(0xFAA);
+    ///
+    /// // Allocate the number on the heap and get a pointer to the allocation
+    /// let value_ptr = ptr_cell::PtrCell::heap_leak(VALUE);
+    ///
+    /// // Construct a cell from the pointer
+    /// let ordered = ptr_cell::Semantics::Ordered;
+    /// let cell = unsafe { ptr_cell::PtrCell::from_ptr(value_ptr, ordered) };
+    ///
+    /// // Take the number out
+    /// assert_eq!(cell.take(), VALUE)
+    /// ```
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
+    #[inline(always)]
+    const unsafe fn from_ptr(ptr: *mut T, order: Semantics) -> Self {
+        let value = std::sync::atomic::AtomicPtr::new(ptr);
 
         Self { value, order }
     }
