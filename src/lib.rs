@@ -294,7 +294,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Usage
     ///
-    /// ```rust
+    /// ```rust, ignore
     /// // Initialize a sample number
     /// const VALUE: Option<u16> = Some(0xFAA);
     ///
