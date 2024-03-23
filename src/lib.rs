@@ -120,10 +120,15 @@
 //! [3]: https://en.wikipedia.org/wiki/Lock_(computer_science)
 //! [4]: https://docs.rust-embedded.org/book/intro/no-std.html
 
+// You WILL use core and you WILL like it
+#![no_std]
 // You WILL document your code and you WILL like it
 #![warn(missing_docs)]
 
-use std::sync::atomic::Ordering;
+extern crate alloc;
+
+use alloc::boxed::Box;
+use core::sync::atomic::Ordering;
 
 // As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
 // the pointer. In other words, either after replacing the pointer, or when working with a &mut or
@@ -156,7 +161,7 @@ use std::sync::atomic::Ordering;
 #[derive(Debug)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
-    value: std::sync::atomic::AtomicPtr<T>,
+    value: core::sync::atomic::AtomicPtr<T>,
     /// Group of memory orderings for internal atomic operations
     order: Semantics,
 }
@@ -401,7 +406,7 @@ impl<T> PtrCell<T> {
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
     const unsafe fn from_ptr(ptr: *mut T, order: Semantics) -> Self {
-        let value = std::sync::atomic::AtomicPtr::new(ptr);
+        let value = core::sync::atomic::AtomicPtr::new(ptr);
 
         Self { value, order }
     }
@@ -454,7 +459,7 @@ impl<T> PtrCell<T> {
     #[inline(always)]
     fn heap_leak(slot: Option<T>) -> *mut T {
         let Some(value) = slot else {
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         };
 
         let allocation = Box::new(value);
