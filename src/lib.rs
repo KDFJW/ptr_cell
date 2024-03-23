@@ -120,9 +120,7 @@
 //! [3]: https://en.wikipedia.org/wiki/Lock_(computer_science)
 //! [4]: https://docs.rust-embedded.org/book/intro/no-std.html
 
-// You WILL use core and you WILL like it
 #![no_std]
-// You WILL document your code and you WILL like it
 #![warn(missing_docs)]
 
 extern crate alloc;
@@ -186,8 +184,7 @@ impl<T> PtrCell<T> {
     /// ```
     #[inline(always)]
     pub fn get_mut(&mut self) -> Option<&mut T> {
-        let read = self.order.read();
-        let leaked = self.value.load(read);
+        let leaked = self.value.load(self.order.read());
 
         non_null(leaked).map(|ptr| unsafe { &mut *ptr })
     }
@@ -369,9 +366,9 @@ impl<T> PtrCell<T> {
     /// ```
     #[inline(always)]
     pub fn new(slot: Option<T>, order: Semantics) -> Self {
-        let leaked = Self::heap_leak(slot);
+        let ptr = Self::heap_leak(slot);
 
-        unsafe { Self::from_ptr(leaked, order) }
+        unsafe { Self::from_ptr(ptr, order) }
     }
 
     /// Constructs a cell that owns the allocation to which `ptr` points. The cell will use `order`
@@ -458,12 +455,10 @@ impl<T> PtrCell<T> {
     /// - [`None`]: creates a null pointer
     #[inline(always)]
     fn heap_leak(slot: Option<T>) -> *mut T {
-        let Some(value) = slot else {
-            return core::ptr::null_mut();
-        };
-
-        let allocation = Box::new(value);
-        Box::into_raw(allocation)
+        match slot {
+            Some(value) => Box::into_raw(Box::new(value)),
+            None => core::ptr::null_mut(),
+        }
     }
 }
 
