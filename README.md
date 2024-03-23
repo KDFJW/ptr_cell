@@ -1,11 +1,12 @@
 # Simple thread-safe cell
 
-[`PtrCell`][1] is an atomic cell type that allows safe, concurrent access to shared data. No [data
-races][2], no [nasal demons (UB)][3], and most importantly, no [locks][4]
+[`PtrCell`][1] is an atomic cell type that allows safe, concurrent access to shared data. No
+[`std`][2], no [data races][3], no [nasal demons (UB)][4], and most importantly, no [locks][5]
 
 This type is only useful in scenarios where you need to update a shared value by moving in and out
-of it. If you want to concurrently update a value through mutable references, take a look at the
-standard [`Mutex`][5] and [`RwLock`][6] instead
+of it. If you want to concurrently update a value through mutable references and don't require
+support for environments without the standard library ([`no_std`][6]), take a look at the standard
+[`Mutex`][7] and [`RwLock`][8] instead
 
 #### Offers:
 - **Ease of use**: The API is fairly straightforward
@@ -52,16 +53,16 @@ assert_eq!(cell.take(), Some(2047))
 ## Semantics
 
 `PtrCell` allows you to specify memory ordering semantics for its internal atomic operations through
-the [`Semantics`][7] enum. Choosing appropriate semantics is crucial for achieving the desired level
+the [`Semantics`][9] enum. Choosing appropriate semantics is crucial for achieving the desired level
 of synchronization and performance. The available semantics are:
 
-- [`Ordered`][8]: Noticeable overhead, strict
-- [`Coupled`][9]: Acceptable overhead, intuitive
-- [`Relaxed`][10]: Little overhead, unconstrained
+- [`Ordered`][10]: Noticeable overhead, strict
+- [`Coupled`][11]: Acceptable overhead, intuitive
+- [`Relaxed`][12]: Little overhead, unconstrained
 
 `Coupled` is what you'd typically use. However, other orderings have their use cases too. For
 example, the `Relaxed` semantics could be useful when the operations are already ordered through
-other means, like [fences][11]. As always, the documentation for each item contains more details
+other means, like [fences][13]. As always, the documentation for each item contains more details
 
 ## Examples
 
@@ -133,23 +134,25 @@ where
 
 ## Contributing
 
-Yes, please! See [CONTRIBUTING.md][12]
+Yes, please! See [CONTRIBUTING.md][14]
 
 ## License
 
-Either CC0 1.0 Universal or the Apache License 2.0. See [LICENSE.md][13] for more details
+Either CC0 1.0 Universal or the Apache License 2.0. See [LICENSE.md][15] for more details
 
 <!-- References -->
 [1]: https://docs.rs/ptr_cell/latest/ptr_cell/struct.PtrCell.html
-[2]: https://en.wikipedia.org/wiki/Race_condition#In_software
-[3]: https://en.wikipedia.org/wiki/Undefined_behavior
-[4]: https://en.wikipedia.org/wiki/Lock_(computer_science)
-[5]: https://doc.rust-lang.org/std/sync/struct.Mutex.html
-[6]: https://doc.rust-lang.org/std/sync/struct.RwLock.html
-[7]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html
-[8]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Ordered
-[9]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Coupled
-[10]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Relaxed
-[11]: https://doc.rust-lang.org/std/sync/atomic/fn.fence.html
-[12]: CONTRIBUTING.md
-[13]: LICENSE.md
+[2]: https://doc.rust-lang.org/std/
+[3]: https://en.wikipedia.org/wiki/Race_condition#In_software
+[4]: https://en.wikipedia.org/wiki/Undefined_behavior
+[5]: https://en.wikipedia.org/wiki/Lock_(computer_science)
+[6]: https://docs.rust-embedded.org/book/intro/no-std.html
+[7]: https://doc.rust-lang.org/std/sync/struct.Mutex.html
+[8]: https://doc.rust-lang.org/std/sync/struct.RwLock.html
+[9]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html
+[10]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Ordered
+[11]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Coupled
+[12]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Relaxed
+[13]: https://doc.rust-lang.org/std/sync/atomic/fn.fence.html
+[14]: CONTRIBUTING.md
+[15]: LICENSE.md

@@ -1,10 +1,11 @@
 //! # Simple thread-safe cell
 //!
-//! [`PtrCell`] is an atomic cell type that allows safe, concurrent access to shared data. No [data
-//! races][1], no [nasal demons (UB)][2], and most importantly, no [locks][3]
-//!
+//! [`PtrCell`] is an atomic cell type that allows safe, concurrent access to shared data. No
+//! [`std`], no [data races][1], no [nasal demons (UB)][2], and most importantly, no [locks][3]
+//
 //! This type is only useful in scenarios where you need to update a shared value by moving in and
-//! out of it. If you want to concurrently update a value through mutable references, take a look at
+//! out of it. If you want to concurrently update a value through mutable references and don't
+//! require support for environments without the standard library ([`no_std`][4]), take a look at
 //! the standard [`Mutex`](std::sync::Mutex) and [`RwLock`](std::sync::RwLock) instead
 //!
 //! #### Offers:
@@ -117,11 +118,17 @@
 //! [1]: https://en.wikipedia.org/wiki/Race_condition#In_software
 //! [2]: https://en.wikipedia.org/wiki/Undefined_behavior
 //! [3]: https://en.wikipedia.org/wiki/Lock_(computer_science)
+//! [4]: https://docs.rust-embedded.org/book/intro/no-std.html
 
+// You WILL use core and you WILL like it
+#![no_std]
 // You WILL document your code and you WILL like it
 #![warn(missing_docs)]
 
-use std::sync::atomic::Ordering;
+extern crate alloc;
+
+use alloc::boxed::Box;
+use core::sync::atomic::Ordering;
 
 // As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
 // the pointer. In other words, either after replacing the pointer, or when working with a &mut or
@@ -154,7 +161,7 @@ use std::sync::atomic::Ordering;
 #[derive(Debug)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
-    value: std::sync::atomic::AtomicPtr<T>,
+    value: core::sync::atomic::AtomicPtr<T>,
     /// Group of memory orderings for internal atomic operations
     order: Semantics,
 }
@@ -399,7 +406,7 @@ impl<T> PtrCell<T> {
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
     const unsafe fn from_ptr(ptr: *mut T, order: Semantics) -> Self {
-        let value = std::sync::atomic::AtomicPtr::new(ptr);
+        let value = core::sync::atomic::AtomicPtr::new(ptr);
 
         Self { value, order }
     }
@@ -452,7 +459,7 @@ impl<T> PtrCell<T> {
     #[inline(always)]
     fn heap_leak(slot: Option<T>) -> *mut T {
         let Some(value) = slot else {
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         };
 
         let allocation = Box::new(value);
