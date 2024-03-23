@@ -1,10 +1,9 @@
 [package]
 name = "ptr_cell"
-version = "1.0.1"
+version = "1.1.0"
 authors = ["Nikolay Levkovsky <nik@nous.so>"]
 edition = "2021"
 description = "Thread-safe cell based on atomic pointers to externally stored data"
-documentation = "https://docs.rs/ptr_cell/1.0.0/ptr_cell"
 readme = "README.md"
 repository = "https://github.com/KDFJW/ptr_cell"
 license = "CC0-1.0 OR Apache-2.0"
