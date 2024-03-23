@@ -2,7 +2,7 @@
 
 ## 1.2.0 - 3/24/24
 
-## Changed
+### Changed
 - The library now links against `core` and `alloc` instead of `std`
 
 ## 1.1.0 - 3/23/24
