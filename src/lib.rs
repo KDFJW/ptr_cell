@@ -126,7 +126,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::sync::atomic::Ordering;
+use core::{fmt::Debug, sync::atomic::Ordering};
 
 // As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
 // the pointer. In other words, either after replacing the pointer, or when working with a &mut or
@@ -156,7 +156,6 @@ use core::sync::atomic::Ordering;
 /// // Take the value out of the cell
 /// assert_eq!(cell.take(), Some(2047))
 /// ```
-#[derive(Debug)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
     value: core::sync::atomic::AtomicPtr<T>,
@@ -459,6 +458,16 @@ impl<T> PtrCell<T> {
             Some(value) => Box::into_raw(Box::new(value)),
             None => core::ptr::null_mut(),
         }
+    }
+}
+
+impl<T> Debug for PtrCell<T> {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
+        formatter
+            .debug_struct("PtrCell")
+            .field("value", &self.value)
+            .field("order", &self.order)
+            .finish()
     }
 }
 
