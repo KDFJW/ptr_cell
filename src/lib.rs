@@ -126,7 +126,7 @@
 extern crate alloc;
 
 use alloc::boxed::Box;
-use core::{fmt::Debug, sync::atomic::Ordering};
+use core::sync::atomic::Ordering;
 
 // As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
 // the pointer. In other words, either after replacing the pointer, or when working with a &mut or
@@ -461,7 +461,7 @@ impl<T> PtrCell<T> {
     }
 }
 
-impl<T> Debug for PtrCell<T> {
+impl<T> core::fmt::Debug for PtrCell<T> {
     fn fmt(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
         formatter
             .debug_struct("PtrCell")
