@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 - 3/25/24
+
+### Fixed
+- Removed the unnecessary `T: Debug` bound from the `PtrCell`'s `Debug` implementation
+
 ## 1.2.0 - 3/24/24
 
 ### Changed
