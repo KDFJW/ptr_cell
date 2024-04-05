@@ -32,7 +32,13 @@ To add `ptr_cell` to your crate's dependencies, run the following command in you
 cargo add ptr_cell
 ```
 
-This will add `ptr_cell` to your Cargo.toml file, allowing you to use it in your crate
+This will add `ptr_cell` to your Cargo.toml file, allowing you to use the library in your crate.
+Alternatively, you can do this by manually adding the following lines to the file:
+
+```toml
+[dependencies.ptr_cell]
+version = "2.0.0"
+```
 
 ## Usage
 
