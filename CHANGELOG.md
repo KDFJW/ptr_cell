@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.0 - 4/6/24
+
+## Changed
+- `PtrCell` now has the same in-memory representation as a `*mut T`
+- `PtrCell::new` doesn't require a `Semantics` variant anymore
+- `PtrCell::{is_empty, replace, take, map_owner}` now require a `Semantics` variant
+
 ## 1.2.1 - 3/25/24
 
 ### Fixed

@@ -1,6 +1,6 @@
 [package]
 name = "ptr_cell"
-version = "1.2.1"
+version = "2.0.0"
 authors = ["Nikolay Levkovsky <nik@nous.so>"]
 edition = "2021"
 description = "Thread-safe cell based on atomic pointers to externally stored data"
