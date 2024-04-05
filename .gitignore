@@ -3,3 +3,6 @@ target/
 # Protect against accidental copies
 :w
 :
+
+# Rare, but still happens
+w
