@@ -133,8 +133,8 @@ use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
 // As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
-// the pointer. In other words, either after replacing the pointer, or when working with a &mut or
-// an owned cell. The next comment follows from this
+// the pointer. In other words, either after replacing it, or when working with a &mut or an owned
+// cell. The next comment follows from this
 
 // Do NOT ever refactor this to use None instead of null pointers. No pointer and a pointer to
 // nothing are vastly different concepts. In this case, only the absence of a pointer is safe to use
@@ -167,6 +167,13 @@ use core::sync::atomic::Ordering;
 #[repr(transparent)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
+    ///
+    /// # Invariants
+    ///
+    /// - **If non-null**: Must point to memory that has been allocated in accordance with the
+    /// [memory layout][1] used by [`Box`]
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     value: core::sync::atomic::AtomicPtr<T>,
 }
 
@@ -200,8 +207,8 @@ impl<T> PtrCell<T> {
     /// Replaces the cell's value with a new one, constructed from the cell itself using the
     /// provided `new` function
     ///
-    /// Despite the operation being somewhat complex, it's still entirely atomic. This allows it to
-    /// be safely used in implementations of shared linked-list-like data structures
+    /// Despite the fact that this operation is somewhat complex, it's still entirely atomic. This
+    /// allows it to be safely used in implementations of shared linked-list-like data structures
     ///
     /// # Usage
     ///
@@ -390,10 +397,11 @@ impl<T> PtrCell<T> {
     /// non-null `ptr` is treated as [`Some`]
     ///
     /// # Safety
+    ///
     /// The memory pointed to by `ptr` must have been allocated in accordance with the [memory
     /// layout][1] used by [`Box`]
     ///
-    /// Dereferencing `ptr` after this function has been called can result in undefined behavior
+    /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
     /// # Usage
     ///
@@ -501,33 +509,55 @@ fn non_null<T>(ptr: *mut T) -> Option<*mut T> {
 /// Memory ordering semantics for atomic operations. Determines how value updates are synchronized
 /// between threads
 ///
-/// If you're not sure what semantics to use, choose [`Coupled`](Semantics::Coupled)
+/// Lock-free programming is not easy to grasp. What's more, resources explaining Rust's atomic
+/// orderings in depth are pretty sparse. However, this is not really an issue. Atomics in Rust are
+/// almost identical to their C++ counterparts, of which there exist abundant explanations
+///
+/// Here are some great sources:
+///
+/// - Although not meant as an introduction to the release-acquire semantics, this [fantastic
+/// article][1] by Jeff Preshing does a great job at explaining them. It also shows why atomic
+/// memory fences are different from atomic operations
+///
+/// - Another [great article][2] by Preshing, but this time dedicated to the concept of
+/// release-acquire semantics. It goes into more detail and contains graphics that help make the
+/// reordering guarantees intuitive
+///
+/// - [Memory order][3] from the C++ standards. Way more technical, but has all contracts collected
+/// in a single place. Please note that Rust lacks a direct analog to C++'s `memory_order_consume`
+///
+/// If you're still not sure what semantics to use, choose [`Coupled`](Semantics::Coupled)
+///
+/// [1]: https://preshing.com/20131125/acquire-and-release-fences-dont-work-the-way-youd-expect/
+/// [2]: https://preshing.com/20120913/acquire-and-release-semantics/
+/// [3]: https://en.cppreference.com/w/cpp/atomic/memory_order
 #[non_exhaustive]
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Semantics {
-    /// [`SeqCst`](Ordering::SeqCst) semantics
-    ///
-    /// All memory operations will appear to be executed in a single, total order. See the
-    /// documentation for `SeqCst`
-    ///
-    /// Maximum synchronization constraints and the worst performance
-    Ordered = 2,
-
-    /// [`Release`](Ordering::Release)-[`Acquire`](Ordering::Acquire) coupling semantics
-    ///
-    /// A write that has happened before a read will always be visible to the said read. See the
-    /// documentation for `Release` and `Acquire`
-    ///
-    /// A common assumption is that this is how memory operations naturally behave. Thus, this is
-    /// likely the semantics you want to use
-    ///
-    /// Mild synchronization constraints and fair performance
-    Coupled = 1,
-
     /// [`Relaxed`](Ordering::Relaxed) semantics
     ///
     /// No synchronization constraints and the best performance
-    Relaxed = 0,
+    Relaxed,
+
+    /// [`Release`](Ordering::Release)-[`Acquire`](Ordering::Acquire) coupling semantics
+    ///
+    /// Mild synchronization constraints and fair performance
+    ///
+    /// A read will always see the preceding write (if one exists). Any operations that take place
+    /// before the write will also be seen, regardless of their semantics. See the documentation for
+    /// `Release` and `Acquire`
+    ///
+    /// A common assumption is that this is how memory operations naturally behave. Thus, this is
+    /// likely the semantics you want to use
+    Coupled,
+
+    /// [`SeqCst`](Ordering::SeqCst) semantics
+    ///
+    /// Maximum synchronization constraints and the worst performance
+    ///
+    /// All memory operations will appear to be executed in a single, total order. See the
+    /// documentation for `SeqCst`
+    Ordered,
 }
 
 /// Implements a method on [`Semantics`] that returns the appropriate [`Ordering`] for a type of
