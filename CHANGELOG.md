@@ -2,10 +2,14 @@
 
 ## 2.0.0 - 4/6/24
 
+## Added
+- Links to helpful resources in the documentation for `Semantics`
+
 ## Changed
 - `PtrCell` now has the same in-memory representation as a `*mut T`
 - `PtrCell::new` doesn't require a `Semantics` variant anymore
 - `PtrCell::{is_empty, replace, take, map_owner}` now require a `Semantics` variant
+- The documentation for `Semantics::Coupled` now better reflects the reality
 
 ## 1.2.1 - 3/25/24
 
