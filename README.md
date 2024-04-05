@@ -37,17 +37,19 @@ This will add `ptr_cell` to your Cargo.toml file, allowing you to use it in your
 ## Usage
 
 ```rust
-// Construct a new cell with default coupled semantics
+use ptr_cell::Semantics;
+
+// Construct a cell
 let cell: ptr_cell::PtrCell<u16> = 0x81D.into();
 
 // Replace the value inside the cell
-assert_eq!(cell.replace(Some(2047)), Some(0x81D));
+assert_eq!(cell.replace(Some(2047), Semantics::Relaxed), Some(0x81D));
 
 // Check whether the cell is empty
-assert_eq!(cell.is_empty(), false);
+assert_eq!(cell.is_empty(Semantics::Relaxed), false);
 
 // Take the value out of the cell
-assert_eq!(cell.take(), Some(2047))
+assert_eq!(cell.take(Semantics::Relaxed), Some(2047))
 ```
 
 ## Semantics
@@ -75,7 +77,7 @@ fn main() {
     const VALUES: [u8; 11] = [47, 12, 88, 45, 67, 34, 78, 90, 11, 77, 33];
 
     // Construct a cell to hold the current maximum value
-    let cell = ptr_cell::PtrCell::new(None, ptr_cell::Semantics::Relaxed);
+    let cell = ptr_cell::PtrCell::new(None);
     let maximum = std::sync::Arc::new(cell);
 
     // Slice the array in two
@@ -118,7 +120,7 @@ where
         // Try to insert the value into the cell
         loop {
             // Replace the cell's value
-            let previous = buffer.replace(slot);
+            let previous = buffer.replace(slot, ptr_cell::Semantics::Relaxed);
 
             // Determine whether the swap resulted in a decrease of the buffer's value
             match slot < previous {

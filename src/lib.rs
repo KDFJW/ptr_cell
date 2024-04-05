@@ -19,17 +19,19 @@
 //! ## Usage
 //!
 //! ```rust
-//! // Construct a new cell with default coupled semantics
+//! use ptr_cell::Semantics;
+//!
+//! // Construct a cell
 //! let cell: ptr_cell::PtrCell<u16> = 0x81D.into();
 //!
 //! // Replace the value inside the cell
-//! assert_eq!(cell.replace(Some(2047)), Some(0x81D));
+//! assert_eq!(cell.replace(Some(2047), Semantics::Relaxed), Some(0x81D));
 //!
 //! // Check whether the cell is empty
-//! assert_eq!(cell.is_empty(), false);
+//! assert_eq!(cell.is_empty(Semantics::Relaxed), false);
 //!
 //! // Take the value out of the cell
-//! assert_eq!(cell.take(), Some(2047))
+//! assert_eq!(cell.take(Semantics::Relaxed), Some(2047))
 //! ```
 //!
 //! ## Semantics
@@ -53,12 +55,14 @@
 //! sequence's halves
 //!
 //! ```rust
+//! use ptr_cell::Semantics;
+//!
 //! fn main() {
 //!     // Initialize an array of random numbers
 //!     const VALUES: [u8; 11] = [47, 12, 88, 45, 67, 34, 78, 90, 11, 77, 33];
 //!
 //!     // Construct a cell to hold the current maximum value
-//!     let cell = ptr_cell::PtrCell::new(None, ptr_cell::Semantics::Relaxed);
+//!     let cell = ptr_cell::PtrCell::new(None);
 //!     let maximum = std::sync::Arc::new(cell);
 //!
 //!     // Slice the array in two
@@ -83,7 +87,7 @@
 //!     }
 //!
 //!     // Check the found maximum
-//!     assert_eq!(maximum.take(), Some(90))
+//!     assert_eq!(maximum.take(Semantics::Relaxed), Some(90))
 //! }
 //!
 //! /// Inserts the maximum of `sequence` and `buffer` into `buffer`
@@ -101,7 +105,7 @@
 //!         // Try to insert the value into the cell
 //!         loop {
 //!             // Replace the cell's value
-//!             let previous = buffer.replace(slot);
+//!             let previous = buffer.replace(slot, Semantics::Relaxed);
 //!
 //!             // Determine whether the swap resulted in a decrease of the buffer's value
 //!             match slot < previous {
@@ -129,8 +133,8 @@ use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
 // As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
-// the pointer. In other words, either after replacing the pointer, or when working with a &mut or
-// an owned cell. The next comment follows from this
+// the pointer. In other words, either after replacing it, or when working with a &mut or an owned
+// cell. The next comment follows from this
 
 // Do NOT ever refactor this to use None instead of null pointers. No pointer and a pointer to
 // nothing are vastly different concepts. In this case, only the absence of a pointer is safe to use
@@ -141,26 +145,36 @@ use core::sync::atomic::Ordering;
 /// to *leaked* values allocated by [`Box`]. Synchronization is achieved by atomically manipulating
 /// these pointers
 ///
+/// This type has the same in-memory representation as a `*mut T`
+///
 /// # Usage
 ///
 /// ```rust
-/// // Construct a new cell with default coupled semantics
+/// use ptr_cell::Semantics;
+///
+/// // Construct a cell
 /// let cell: ptr_cell::PtrCell<u16> = 0x81D.into();
 ///
 /// // Replace the value inside the cell
-/// assert_eq!(cell.replace(Some(2047)), Some(0x81D));
+/// assert_eq!(cell.replace(Some(2047), Semantics::Relaxed), Some(0x81D));
 ///
 /// // Check whether the cell is empty
-/// assert_eq!(cell.is_empty(), false);
+/// assert_eq!(cell.is_empty(Semantics::Relaxed), false);
 ///
 /// // Take the value out of the cell
-/// assert_eq!(cell.take(), Some(2047))
+/// assert_eq!(cell.take(Semantics::Relaxed), Some(2047))
 /// ```
+#[repr(transparent)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
+    ///
+    /// # Invariants
+    ///
+    /// - **If non-null**: Must point to memory that has been allocated in accordance with the
+    /// [memory layout][1] used by [`Box`]
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     value: core::sync::atomic::AtomicPtr<T>,
-    /// Group of memory orderings for internal atomic operations
-    order: Semantics,
 }
 
 impl<T> PtrCell<T> {
@@ -169,6 +183,8 @@ impl<T> PtrCell<T> {
     /// # Usage
     ///
     /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
     /// // Construct a cell with a String inside
     /// let mut text: ptr_cell::PtrCell<_> = "Punto aquí".to_string().into();
     ///
@@ -179,25 +195,27 @@ impl<T> PtrCell<T> {
     ///
     /// // Check the String's value
     /// let sentence = "Punto aquí con un puntero".to_string();
-    /// assert_eq!(text.take(), Some(sentence))
+    /// assert_eq!(text.take(Semantics::Relaxed), Some(sentence))
     /// ```
     #[inline(always)]
     pub fn get_mut(&mut self) -> Option<&mut T> {
-        let leaked = self.value.load(self.order.read());
+        let leak = *self.value.get_mut();
 
-        non_null(leaked).map(|ptr| unsafe { &mut *ptr })
+        non_null(leak).map(|ptr| unsafe { &mut *ptr })
     }
 
     /// Replaces the cell's value with a new one, constructed from the cell itself using the
     /// provided `new` function
     ///
-    /// Despite the operation being somewhat complex, it's still entirely atomic. This allows it to
-    /// be safely used in implementations of shared linked-list-like data structures
+    /// Despite the fact that this operation is somewhat complex, it's still entirely atomic. This
+    /// allows it to be safely used in implementations of shared linked-list-like data structures
     ///
     /// # Usage
     ///
     /// ```rust
     /// fn main() {
+    ///     use ptr_cell::Semantics;
+    ///
     ///     // Initialize a sample sentence
     ///     const SENTENCE: &str = "Hachó en México";
     ///
@@ -210,19 +228,19 @@ impl<T> PtrCell<T> {
     ///         let value = word;
     ///
     ///         // Replace the node with a new one pointing to it
-    ///         cell.map_owner(|next| Node { value, next });
+    ///         cell.map_owner(|next| Node { value, next }, Semantics::Relaxed);
     ///     }
     ///
     ///     // Take the first node out of the cell and destructure it
     ///     let Node { value, mut next } = cell
-    ///         .take()
+    ///         .take(Semantics::Relaxed)
     ///         .expect("Values should have been inserted into the cell");
     ///
     ///     // Initialize the "decoded" sentence with the first word
     ///     let mut decoded = value.to_string();
     ///
     ///     // Iterate over each remaining node
-    ///     while let Some(node) = next.take() {
+    ///     while let Some(node) = next.take(Semantics::Relaxed) {
     ///         // Append the word to the sentence
     ///         decoded += " ";
     ///         decoded += node.value;
@@ -246,13 +264,13 @@ impl<T> PtrCell<T> {
     ///     }
     /// }
     /// ```
-    pub fn map_owner<F>(&self, new: F)
+    pub fn map_owner<F>(&self, new: F, order: Semantics)
     where
         F: FnOnce(Self) -> T,
         T: AsMut<Self>,
     {
-        let value_ptr = self.value.load(self.order.read());
-        let value = unsafe { Self::from_ptr(value_ptr, self.order) };
+        let value_ptr = self.value.load(order.read());
+        let value = unsafe { Self::from_ptr(value_ptr) };
 
         let owner_slot = Some(new(value));
         let owner_ptr = Self::heap_leak(owner_slot);
@@ -264,8 +282,8 @@ impl<T> PtrCell<T> {
             let value_ptr_result = self.value.compare_exchange_weak(
                 *value_ptr,
                 owner_ptr,
-                self.order.read_write(),
-                self.order.read(),
+                order.read_write(),
+                order.read(),
             );
 
             match value_ptr_result {
@@ -277,27 +295,28 @@ impl<T> PtrCell<T> {
 
     /// Returns the cell's value, leaving [`None`] in its place
     ///
-    /// This is an alias for `self.replace(None)`
+    /// This is an alias for `self.replace(None, order)`
     ///
     /// # Usage
     ///
     /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
     /// // Initialize a sample number
     /// const VALUE: Option<u8> = Some(0b01000101);
     ///
     /// // Wrap the number in a cell
-    /// let ordered = ptr_cell::Semantics::Ordered;
-    /// let cell = ptr_cell::PtrCell::new(VALUE, ordered);
+    /// let cell = ptr_cell::PtrCell::new(VALUE);
     ///
     /// // Take the number out
-    /// assert_eq!(cell.take(), VALUE);
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE);
     ///
     /// // Verify that the cell is now empty
-    /// assert_eq!(cell.take(), None)
+    /// assert_eq!(cell.take(Semantics::Relaxed), None)
     /// ```
     #[inline(always)]
-    pub fn take(&self) -> Option<T> {
-        self.replace(None)
+    pub fn take(&self, order: Semantics) -> Option<T> {
+        self.replace(None, order)
     }
 
     /// Returns the cell's value, replacing it with `slot`
@@ -305,26 +324,26 @@ impl<T> PtrCell<T> {
     /// # Usage
     ///
     /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
     /// // Construct an empty cell
-    /// let cell = ptr_cell::PtrCell::new(None, Default::default());
+    /// let cell = ptr_cell::PtrCell::default();
     ///
     /// // Initialize a pair of values
     /// let odd = Some(vec![1, 3, 5]);
     /// let even = Some(vec![2, 4, 6]);
     ///
     /// // Replace the value multiple times
-    /// assert_eq!(cell.replace(odd.clone()), None);
-    /// assert_eq!(cell.replace(even.clone()), odd);
-    /// assert_eq!(cell.replace(None), even)
+    /// assert_eq!(cell.replace(odd.clone(), Semantics::Relaxed), None);
+    /// assert_eq!(cell.replace(even.clone(), Semantics::Relaxed), odd);
+    /// assert_eq!(cell.replace(None, Semantics::Relaxed), even)
     /// ```
     #[inline(always)]
-    pub fn replace(&self, slot: Option<T>) -> Option<T> {
-        let read_write = self.order.read_write();
+    pub fn replace(&self, slot: Option<T>, order: Semantics) -> Option<T> {
+        let new_leak = Self::heap_leak(slot);
+        let old_leak = self.value.swap(new_leak, order.read_write());
 
-        let new_leaked = Self::heap_leak(slot);
-        let old_leaked = self.value.swap(new_leaked, read_write);
-
-        non_null(old_leaked).map(|ptr| *unsafe { Box::from_raw(ptr) })
+        unsafe { Self::heap_reclaim(old_leak) }
     }
 
     /// Determines whether this cell is empty
@@ -332,59 +351,63 @@ impl<T> PtrCell<T> {
     /// # Usage
     ///
     /// ```rust
-    /// use ptr_cell::PtrCell;
+    /// use ptr_cell::Semantics;
     /// use std::collections::HashMap;
     ///
     /// // Construct an empty cell
-    /// let cell: PtrCell<HashMap<u16, String>> = PtrCell::default();
+    /// let cell: ptr_cell::PtrCell<HashMap<u16, String>> = Default::default();
     ///
-    /// // The cell's default value is None (empty)
-    /// assert!(cell.is_empty(), "The cell should be empty by default")
+    /// // Check that the cell's default value is None (empty)
+    /// assert!(
+    ///     cell.is_empty(Semantics::Relaxed),
+    ///     "The cell should be empty by default"
+    /// )
     /// ```
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
-        let read = self.order.read();
-
-        self.value.load(read).is_null()
+    pub fn is_empty(&self, order: Semantics) -> bool {
+        self.value.load(order.read()).is_null()
     }
 
-    /// Constructs a cell with `slot` inside and `order` as its memory ordering
+    /// Constructs a cell with `slot` inside
     ///
     /// # Usage
     ///
     /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
     /// // Initialize a sample number
     /// const VALUE: Option<u16> = Some(0xFAA);
     ///
     /// // Wrap the number in a cell
-    /// let ordered = ptr_cell::Semantics::Ordered;
-    /// let cell = ptr_cell::PtrCell::new(VALUE, ordered);
+    /// let cell = ptr_cell::PtrCell::new(VALUE);
     ///
     /// // Take the number out
-    /// assert_eq!(cell.take(), VALUE)
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
     /// ```
     #[inline(always)]
-    pub fn new(slot: Option<T>, order: Semantics) -> Self {
+    pub fn new(slot: Option<T>) -> Self {
         let ptr = Self::heap_leak(slot);
 
-        unsafe { Self::from_ptr(ptr, order) }
+        unsafe { Self::from_ptr(ptr) }
     }
 
-    /// Constructs a cell that owns the allocation to which `ptr` points. The cell will use `order`
-    /// as its memory ordering
+    /// Constructs a cell that owns the allocation to which `ptr` points
     ///
     /// Passing in a null `ptr` is perfectly valid, as it represents [`None`]. Conversely, a
     /// non-null `ptr` is treated as [`Some`]
     ///
     /// # Safety
+    ///
     /// The memory pointed to by `ptr` must have been allocated in accordance with the [memory
     /// layout][1] used by [`Box`]
     ///
-    /// Dereferencing `ptr` after this function has been called can result in undefined behavior
+    /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
     /// # Usage
     ///
     /// ```rust, ignore
+    /// use ptr_cell::Semantics;
+    ///
     /// // Initialize a sample number
     /// const VALUE: Option<u16> = Some(0xFAA);
     ///
@@ -392,66 +415,46 @@ impl<T> PtrCell<T> {
     /// let value_ptr = ptr_cell::PtrCell::heap_leak(VALUE);
     ///
     /// // Construct a cell from the pointer
-    /// let ordered = ptr_cell::Semantics::Ordered;
-    /// let cell = unsafe { ptr_cell::PtrCell::from_ptr(value_ptr, ordered) };
+    /// let cell = unsafe { ptr_cell::PtrCell::from_ptr(value_ptr) };
     ///
     /// // Take the number out
-    /// assert_eq!(cell.take(), VALUE)
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
     /// ```
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
-    const unsafe fn from_ptr(ptr: *mut T, order: Semantics) -> Self {
+    const unsafe fn from_ptr(ptr: *mut T) -> Self {
         let value = core::sync::atomic::AtomicPtr::new(ptr);
 
-        Self { value, order }
+        Self { value }
     }
 
-    /// Sets the memory ordering of this cell to `order`
+    /// Reclaims ownership of the memory pointed to by `ptr` and returns the contained value
     ///
-    /// # Usage
+    /// **A null pointer represents [None]**
     ///
-    /// ```rust
-    /// use ptr_cell::{PtrCell, Semantics};
+    /// This function is intended to be the inverse of [`heap_leak`](Self::heap_leak)
     ///
-    /// // Construct a cell with relaxed semantics
-    /// let mut cell: PtrCell<Vec<u8>> = PtrCell::new(None, Semantics::Relaxed);
+    /// # Safety
     ///
-    /// // Change the semantics to coupled
-    /// cell.set_order(Semantics::Coupled);
+    /// If `ptr` is non-null, the memory it points to must have been allocated in accordance with
+    /// the [memory layout][1] used by [`Box`]
     ///
-    /// // Check the updated semantics
-    /// assert_eq!(cell.get_order(), Semantics::Coupled)
-    /// ```
+    /// Dereferencing `ptr` after this function has been called is undefined behavior
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
-    pub fn set_order(&mut self, order: Semantics) {
-        self.order = order
+    unsafe fn heap_reclaim(ptr: *mut T) -> Option<T> {
+        non_null(ptr).map(|ptr| *Box::from_raw(ptr))
     }
 
-    /// Returns the current memory ordering of this cell
+    /// Leaks `slot` to the heap and returns a raw pointer to it
     ///
-    /// # Usage
+    /// **[None] is represented by a null pointer**
     ///
-    /// ```rust
-    /// use ptr_cell::PtrCell;
+    /// The memory will be allocated in accordance with the [memory layout][1] used by [`Box`]
     ///
-    /// // Construct a cell with relaxed semantics
-    /// let relaxed = ptr_cell::Semantics::Relaxed;
-    /// let cell: PtrCell<String> = PtrCell::new(None, relaxed);
-    ///
-    /// // Check the cell's semantics
-    /// assert_eq!(cell.get_order(), relaxed)
-    /// ```
-    #[inline(always)]
-    pub fn get_order(&self) -> Semantics {
-        self.order
-    }
-
-    /// Returns a raw pointer to the value contained within `slot`
-    ///
-    /// Works differently depending on the `slot`'s variant:
-    /// - [`Some(T)`]: allocates `T` on the heap using [`Box`] and leaks it
-    /// - [`None`]: creates a null pointer
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
     fn heap_leak(slot: Option<T>) -> *mut T {
         match slot {
@@ -466,30 +469,31 @@ impl<T> core::fmt::Debug for PtrCell<T> {
         formatter
             .debug_struct("PtrCell")
             .field("value", &self.value)
-            .field("order", &self.order)
             .finish()
     }
 }
 
 impl<T> Default for PtrCell<T> {
-    /// Constructs an empty cell with the memory ordering of [`Coupled`](Semantics::Coupled)
+    /// Constructs an empty cell
     #[inline(always)]
     fn default() -> Self {
-        Self::new(None, Default::default())
+        Self::new(None)
     }
 }
 
 impl<T> Drop for PtrCell<T> {
     #[inline(always)]
     fn drop(&mut self) {
-        let _drop = self.take();
+        let ptr = *self.value.get_mut();
+
+        let _drop = unsafe { Self::heap_reclaim(ptr) };
     }
 }
 
 impl<T> From<T> for PtrCell<T> {
     #[inline(always)]
     fn from(value: T) -> Self {
-        Self::new(Some(value), Default::default())
+        Self::new(Some(value))
     }
 }
 
@@ -505,33 +509,55 @@ fn non_null<T>(ptr: *mut T) -> Option<*mut T> {
 /// Memory ordering semantics for atomic operations. Determines how value updates are synchronized
 /// between threads
 ///
-/// If you're not sure what semantics to use, choose [`Coupled`](Semantics::Coupled)
+/// Lock-free programming is not easy to grasp. What's more, resources explaining Rust's atomic
+/// orderings in depth are pretty sparse. However, this is not really an issue. Atomics in Rust are
+/// almost identical to their C++ counterparts, of which there exist abundant explanations
+///
+/// Here are some great sources:
+///
+/// - Although not meant as an introduction to the release-acquire semantics, this [fantastic
+/// article][1] by Jeff Preshing does a great job at explaining them. It also shows why atomic
+/// memory fences are different from atomic operations
+///
+/// - Another [great article][2] by Preshing, but this time dedicated to the concept of
+/// release-acquire semantics. It goes into more detail and contains graphics that help make the
+/// reordering guarantees intuitive
+///
+/// - [Memory order][3] from the C++ standards. Way more technical, but has all contracts collected
+/// in a single place. Please note that Rust lacks a direct analog to C++'s `memory_order_consume`
+///
+/// If you're still not sure what semantics to use, choose [`Coupled`](Semantics::Coupled)
+///
+/// [1]: https://preshing.com/20131125/acquire-and-release-fences-dont-work-the-way-youd-expect/
+/// [2]: https://preshing.com/20120913/acquire-and-release-semantics/
+/// [3]: https://en.cppreference.com/w/cpp/atomic/memory_order
 #[non_exhaustive]
 #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum Semantics {
-    /// [`SeqCst`](Ordering::SeqCst) semantics
-    ///
-    /// All memory operations will appear to be executed in a single, total order. See the
-    /// documentation for `SeqCst`
-    ///
-    /// Maximum synchronization constraints and the worst performance
-    Ordered = 2,
-
-    /// [`Release`](Ordering::Release)-[`Acquire`](Ordering::Acquire) coupling semantics
-    ///
-    /// A write that has happened before a read will always be visible to the said read. See the
-    /// documentation for `Release` and `Acquire`
-    ///
-    /// A common assumption is that this is how memory operations naturally behave. Thus, this is
-    /// likely the semantics you want to use
-    ///
-    /// Mild synchronization constraints and fair performance
-    Coupled = 1,
-
     /// [`Relaxed`](Ordering::Relaxed) semantics
     ///
     /// No synchronization constraints and the best performance
-    Relaxed = 0,
+    Relaxed,
+
+    /// [`Release`](Ordering::Release)-[`Acquire`](Ordering::Acquire) coupling semantics
+    ///
+    /// Mild synchronization constraints and fair performance
+    ///
+    /// A read will always see the preceding write (if one exists). Any operations that take place
+    /// before the write will also be seen, regardless of their semantics. See the documentation for
+    /// `Release` and `Acquire`
+    ///
+    /// A common assumption is that this is how memory operations naturally behave. Thus, this is
+    /// likely the semantics you want to use
+    Coupled,
+
+    /// [`SeqCst`](Ordering::SeqCst) semantics
+    ///
+    /// Maximum synchronization constraints and the worst performance
+    ///
+    /// All memory operations will appear to be executed in a single, total order. See the
+    /// documentation for `SeqCst`
+    Ordered,
 }
 
 /// Implements a method on [`Semantics`] that returns the appropriate [`Ordering`] for a type of
