@@ -191,32 +191,6 @@ pub struct PtrCell<T> {
 }
 
 impl<T> PtrCell<T> {
-    /// Returns a mutable reference to the cell's value
-    ///
-    /// # Usage
-    ///
-    /// ```rust
-    /// use ptr_cell::Semantics;
-    ///
-    /// // Construct a cell with a String inside
-    /// let mut text: ptr_cell::PtrCell<_> = "Punto aquí".to_string().into();
-    ///
-    /// // Modify the String
-    /// text.get_mut()
-    ///     .expect("The cell should contain a value")
-    ///     .push_str(" con un puntero");
-    ///
-    /// // Check the String's value
-    /// let sentence = "Punto aquí con un puntero".to_string();
-    /// assert_eq!(text.take(Semantics::Relaxed), Some(sentence))
-    /// ```
-    #[inline(always)]
-    pub fn get_mut(&mut self) -> Option<&mut T> {
-        let leak = *self.value.get_mut();
-
-        non_null(leak).map(|ptr| unsafe { &mut *ptr })
-    }
-
     /// Replaces the cell's value with a new one, constructed from the cell itself using the
     /// provided `new` function
     ///
@@ -283,7 +257,7 @@ impl<T> PtrCell<T> {
         F: FnOnce(Self) -> T,
         T: AsMut<Self>,
     {
-        let value_ptr = self.value.load(order.read());
+        let value_ptr = self.get_ptr(order);
         let value = unsafe { Self::from_ptr(value_ptr) };
 
         let owner_slot = Some(new(value));
@@ -333,6 +307,32 @@ impl<T> PtrCell<T> {
         self.replace(None, order)
     }
 
+    /// Returns the pointer to the cell's value, replacing the pointer with a null one
+    ///
+    /// This is an alias for `self.replace_ptr(core::ptr::null_mut(), order)`
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a test value
+    /// const VALUE: Option<u8> = Some(0b01000101);
+    ///
+    /// // Wrap the value in a cell
+    /// let cell = ptr_cell::PtrCell::new(VALUE);
+    ///
+    /// // Take the pointer out
+    /// let ptr = cell.take_ptr(Semantics::Relaxed);
+    ///
+    /// // Get the value back
+    /// assert_eq!(unsafe { ptr_cell::PtrCell::heap_reclaim(ptr) }, VALUE)
+    /// ```
+    #[inline(always)]
+    pub fn take_ptr(&self, order: Semantics) -> *mut T {
+        self.replace_ptr(core::ptr::null_mut(), order)
+    }
+
     /// Returns the cell's value, replacing it with `slot`
     ///
     /// # Usage
@@ -358,9 +358,94 @@ impl<T> PtrCell<T> {
     #[inline(always)]
     pub fn replace(&self, slot: Option<T>, order: Semantics) -> Option<T> {
         let new_leak = Self::heap_leak(slot);
-        let old_leak = self.value.swap(new_leak, order.read_write());
+        let old_leak = self.replace_ptr(new_leak, order);
 
         unsafe { Self::heap_reclaim(old_leak) }
+    }
+
+    /// Returns the pointer to the cell's value, replacing the pointer with `ptr`
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::{PtrCell, Semantics};
+    ///
+    /// // Allocate a pair of test values on the heap
+    /// let semi = PtrCell::heap_leak(Some(';'));
+    /// let colon = PtrCell::heap_leak(Some(':'));
+    ///
+    /// // Construct a cell from one of the allocations
+    /// let cell = unsafe { PtrCell::from_ptr(semi) };
+    ///
+    /// // Replace the pointer to the allocation
+    /// assert_eq!(cell.replace_ptr(colon, Semantics::Relaxed), semi);
+    ///
+    /// // ...and get one back
+    /// let null = std::ptr::null_mut();
+    /// assert_eq!(cell.replace_ptr(null, Semantics::Relaxed), colon);
+    ///
+    /// // Clean up
+    /// unsafe {
+    ///     PtrCell::heap_reclaim(semi);
+    ///     PtrCell::heap_reclaim(colon);
+    /// }
+    /// ```
+    ///
+    /// **Note**: For taking the pointer out of a cell, using [`take_ptr`](Self::take_ptr) is
+    /// recommended
+    #[inline(always)]
+    pub fn replace_ptr(&self, ptr: *mut T, order: Semantics) -> *mut T {
+        self.value.swap(ptr, order.read_write())
+    }
+
+    /// Mutably borrows the cell's value
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Construct a cell with a String inside
+    /// let mut text: ptr_cell::PtrCell<_> = "Punto aquí".to_string().into();
+    ///
+    /// // Modify the String
+    /// text.get_mut()
+    ///     .expect("The cell should contain a value")
+    ///     .push_str(" con un puntero");
+    ///
+    /// // Check the String's value
+    /// let sentence = "Punto aquí con un puntero".to_string();
+    /// assert_eq!(text.take(Semantics::Relaxed), Some(sentence))
+    /// ```
+    #[inline(always)]
+    pub fn get_mut(&mut self) -> Option<&mut T> {
+        let leak = *self.value.get_mut();
+
+        non_null(leak).map(|ptr| unsafe { &mut *ptr })
+    }
+
+    /// Returns a pointer to the cell's value
+    ///
+    /// # Safety
+    ///
+    /// When dereferencing the pointer, you must ensure that nothing else can or will modify it.
+    /// This can be achieved, for example, by replacing the shared pointer or using a
+    /// synchronization mechanism
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Construct an empty cell
+    /// let cell: ptr_cell::PtrCell<[u8; 3]> = Default::default();
+    ///
+    /// // Get the cell's pointer
+    /// assert_eq!(cell.get_ptr(Semantics::Relaxed), std::ptr::null_mut())
+    /// ```
+    #[inline(always)]
+    pub fn get_ptr(&self, order: Semantics) -> *mut T {
+        self.value.load(order.read())
     }
 
     /// Determines whether this cell is empty
@@ -378,7 +463,7 @@ impl<T> PtrCell<T> {
     /// ```
     #[inline(always)]
     pub fn is_empty(&self, order: Semantics) -> bool {
-        self.value.load(order.read()).is_null()
+        self.get_ptr(order).is_null()
     }
 
     /// Constructs a cell with `slot` inside
@@ -416,7 +501,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Usage
     ///
-    /// ```rust, ignore
+    /// ```rust
     /// use ptr_cell::Semantics;
     ///
     /// // Initialize a test value
@@ -434,7 +519,7 @@ impl<T> PtrCell<T> {
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
-    const unsafe fn from_ptr(ptr: *mut T) -> Self {
+    pub const unsafe fn from_ptr(ptr: *mut T) -> Self {
         let value = core::sync::atomic::AtomicPtr::new(ptr);
 
         Self { value }
@@ -452,9 +537,22 @@ impl<T> PtrCell<T> {
     ///
     /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// // Initialize a test value
+    /// const VALUE: Option<u16> = Some(1155);
+    ///
+    /// // Give up ownership of the value
+    /// let ptr = ptr_cell::PtrCell::heap_leak(VALUE);
+    ///
+    /// // Get ownership of the value back
+    /// assert_eq!(unsafe { ptr_cell::PtrCell::heap_reclaim(ptr) }, VALUE)
+    /// ```
+    ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
-    unsafe fn heap_reclaim(ptr: *mut T) -> Option<T> {
+    pub unsafe fn heap_reclaim(ptr: *mut T) -> Option<T> {
         non_null(ptr).map(|ptr| *Box::from_raw(ptr))
     }
 
@@ -464,9 +562,24 @@ impl<T> PtrCell<T> {
     ///
     /// The memory will be allocated in accordance with the [memory layout][1] used by [`Box`]
     ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Allocate a value
+    /// let ptr = ptr_cell::PtrCell::heap_leak(1031_u16.into());
+    ///
+    /// // Transfer ownership of the allocation to a new cell
+    /// let cell = unsafe { ptr_cell::PtrCell::from_ptr(ptr) };
+    ///
+    /// // Check that the cell uses the same allocation
+    /// assert_eq!(cell.get_ptr(Semantics::Relaxed), ptr)
+    /// ```
+    ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
-    fn heap_leak(slot: Option<T>) -> *mut T {
+    pub fn heap_leak(slot: Option<T>) -> *mut T {
         match slot {
             Some(value) => Box::into_raw(Box::new(value)),
             None => core::ptr::null_mut(),
@@ -496,7 +609,7 @@ impl<T> Drop for PtrCell<T> {
     fn drop(&mut self) {
         let ptr = *self.value.get_mut();
 
-        let _drop = unsafe { Self::heap_reclaim(ptr) };
+        unsafe { Self::heap_reclaim(ptr) };
     }
 }
 
