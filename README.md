@@ -13,8 +13,8 @@ support for environments without the standard library ([`no_std`][6]), take a lo
 - **Performance**: The algorithms are at most a couple of instructions long
 
 #### Limits:
-- **Access to the cell's value**: To see what's stored inside a cell, you must either take the value
-out of it or have exclusive access to the cell
+- **Access**: To see what's stored inside a cell, you must either take the value out of it or
+provide exclusive access (`&mut`) to the cell
 
 ## Table of Contents
 - [Installation](#installation)
@@ -83,7 +83,7 @@ fn main() {
     const VALUES: [u8; 11] = [47, 12, 88, 45, 67, 34, 78, 90, 11, 77, 33];
 
     // Construct a cell to hold the current maximum value
-    let cell = ptr_cell::PtrCell::new(None);
+    let cell = ptr_cell::PtrCell::default();
     let maximum = std::sync::Arc::new(cell);
 
     // Slice the array in two
@@ -150,7 +150,7 @@ Either CC0 1.0 Universal or the Apache License 2.0. See [LICENSE.md][15] for mor
 
 <!-- References -->
 [1]: https://docs.rs/ptr_cell/latest/ptr_cell/struct.PtrCell.html
-[2]: https://doc.rust-lang.org/std/
+[2]: https://doc.rust-lang.org/std
 [3]: https://en.wikipedia.org/wiki/Race_condition#In_software
 [4]: https://en.wikipedia.org/wiki/Undefined_behavior
 [5]: https://en.wikipedia.org/wiki/Lock_(computer_science)
