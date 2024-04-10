@@ -1,11 +1,27 @@
 # Changelog
 
+## 2.1.0 - 4/10/24
+
+### Added
+- `PtrCell::heap_leak`: Associated function for giving up ownership of data
+- `PtrCell::heap_reclaim`: Inverse of `PtrCell::heap_leak`
+- `PtrCell::{from_ptr, replace_ptr, take_ptr}`: Pointer-based alternatives to some existing methods
+- `PtrCell::get_ptr`: Getter for the pointer of `PtrCell`
+- A section on `Semantics` in `PtrCell`'s methods to the cell's documentation
+- Comments to the usage of `Semantics::{read, read_write, write}`
+
+### Changed
+- Used cleaner examples for `PtrCell::{is_empty, replace}`
+
+### Fixed
+- Broken links in the documentation
+
 ## 2.0.0 - 4/6/24
 
-## Added
+### Added
 - Links to helpful resources in the documentation for `Semantics`
 
-## Changed
+### Changed
 - `PtrCell` now has the same in-memory representation as a `*mut T`
 - `PtrCell::new` doesn't require a `Semantics` variant anymore
 - `PtrCell::{is_empty, replace, take, map_owner}` now require a `Semantics` variant
