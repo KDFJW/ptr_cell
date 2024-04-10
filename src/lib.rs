@@ -10,11 +10,11 @@
 //!
 //! #### Offers:
 //! - **Ease of use**: The API is fairly straightforward
-//! - **Performance**: The algorithms are at most a couple of instructions long
+//! - **Performance**: Core algorithms are at most a couple of instructions long
 //!
 //! #### Limits:
-//! - **Access to the cell's value**: To see what's stored inside a cell, you must either take the
-//! value out of it or have exclusive access to the cell
+//! - **Access**: To see what's stored inside a cell, you must either take the value out of it or
+//! provide exclusive access (`&mut`) to the cell
 //!
 //! ## Usage
 //!
@@ -62,7 +62,7 @@
 //!     const VALUES: [u8; 11] = [47, 12, 88, 45, 67, 34, 78, 90, 11, 77, 33];
 //!
 //!     // Construct a cell to hold the current maximum value
-//!     let cell = ptr_cell::PtrCell::new(None);
+//!     let cell = ptr_cell::PtrCell::default();
 //!     let maximum = std::sync::Arc::new(cell);
 //!
 //!     // Slice the array in two
@@ -135,12 +135,16 @@ extern crate alloc;
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
-// As far as I can tell, accessing the cell's value is only safe when you have exclusive access to
-// the pointer. In other words, either after replacing it, or when working with a &mut or an owned
-// cell. The next comment follows from this
+// Add "virtually" to "no locks" in the top-level docs (3.0.0)
+// Update the "Limits" section in the top-level docs (3.0.0)
+// Implement get by using brief spinlocking (3.0.0)
 
-// Do NOT ever refactor this to use None instead of null pointers. No pointer and a pointer to
-// nothing are vastly different concepts. In this case, only the absence of a pointer is safe to use
+// Add `set`, `set_ptr`, `swap` and the inverse of `map_owner` (2.2.0)
+// Explain how the `map_*` methods are equivalent to the `push` and `pop` of a linked list (2.2.0)
+
+// VVVVVVVVVVVVVVVVVVVVVVVV
+// **SPIN HINT!!! (2.2.0)**
+// AAAAAAAAAAAAAAAAAAAAAAAA
 
 /// Thread-safe cell based on atomic pointers
 ///
@@ -167,6 +171,12 @@ use core::sync::atomic::Ordering;
 /// // Take the value out of the cell
 /// assert_eq!(cell.take(Semantics::Relaxed), Some(2047))
 /// ```
+///
+/// # Semantics
+///
+/// All methods that access this cell's data through `&self` inherently require a [`Semantics`]
+/// variant, as this is the only way to load the underlying atomic pointer. This parameter is
+/// omitted from the documentation of individual methods due to its universal applicability
 #[repr(transparent)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
@@ -219,7 +229,7 @@ impl<T> PtrCell<T> {
     /// fn main() {
     ///     use ptr_cell::Semantics;
     ///
-    ///     // Initialize a sample sentence
+    ///     // Initialize a test sentence
     ///     const SENTENCE: &str = "Hachó en México";
     ///
     ///     // Construct an empty cell
@@ -252,7 +262,8 @@ impl<T> PtrCell<T> {
     ///         next = node.next
     ///     }
     ///
-    ///     assert_eq!(SENTENCE, decoded)
+    ///     // Check that there were no errors
+    ///     assert_eq!(decoded, SENTENCE)
     /// }
     ///
     /// /// Unit of a linked list
@@ -296,7 +307,7 @@ impl<T> PtrCell<T> {
         }
     }
 
-    /// Returns the cell's value, leaving [`None`] in its place
+    /// Returns the cell's value, replacing it with [`None`]
     ///
     /// This is an alias for `self.replace(None, order)`
     ///
@@ -305,13 +316,13 @@ impl<T> PtrCell<T> {
     /// ```rust
     /// use ptr_cell::Semantics;
     ///
-    /// // Initialize a sample number
+    /// // Initialize a test value
     /// const VALUE: Option<u8> = Some(0b01000101);
     ///
-    /// // Wrap the number in a cell
+    /// // Wrap the value in a cell
     /// let cell = ptr_cell::PtrCell::new(VALUE);
     ///
-    /// // Take the number out
+    /// // Take the value out
     /// assert_eq!(cell.take(Semantics::Relaxed), VALUE);
     ///
     /// // Verify that the cell is now empty
@@ -329,18 +340,21 @@ impl<T> PtrCell<T> {
     /// ```rust
     /// use ptr_cell::Semantics;
     ///
-    /// // Construct an empty cell
-    /// let cell = ptr_cell::PtrCell::default();
+    /// // Initialize a pair of test values
+    /// const SEMI: Option<char> = Some(';');
+    /// const COLON: Option<char> = Some(':');
     ///
-    /// // Initialize a pair of values
-    /// let odd = Some(vec![1, 3, 5]);
-    /// let even = Some(vec![2, 4, 6]);
+    /// // Wrap one of the values in a cell
+    /// let cell = ptr_cell::PtrCell::new(SEMI);
     ///
-    /// // Replace the value multiple times
-    /// assert_eq!(cell.replace(odd.clone(), Semantics::Relaxed), None);
-    /// assert_eq!(cell.replace(even.clone(), Semantics::Relaxed), odd);
-    /// assert_eq!(cell.replace(None, Semantics::Relaxed), even)
+    /// // Replace the value
+    /// assert_eq!(cell.replace(COLON, Semantics::Relaxed), SEMI);
+    ///
+    /// // ...and get one back
+    /// assert_eq!(cell.replace(None, Semantics::Relaxed), COLON)
     /// ```
+    ///
+    /// **Note**: For taking the value out of a cell, using [`take`](Self::take) is recommended
     #[inline(always)]
     pub fn replace(&self, slot: Option<T>, order: Semantics) -> Option<T> {
         let new_leak = Self::heap_leak(slot);
@@ -355,16 +369,12 @@ impl<T> PtrCell<T> {
     ///
     /// ```rust
     /// use ptr_cell::Semantics;
-    /// use std::collections::HashMap;
     ///
     /// // Construct an empty cell
-    /// let cell: ptr_cell::PtrCell<HashMap<u16, String>> = Default::default();
+    /// let cell: ptr_cell::PtrCell<[char; 3]> = Default::default();
     ///
     /// // Check that the cell's default value is None (empty)
-    /// assert!(
-    ///     cell.is_empty(Semantics::Relaxed),
-    ///     "The cell should be empty by default"
-    /// )
+    /// assert!(cell.is_empty(Semantics::Relaxed))
     /// ```
     #[inline(always)]
     pub fn is_empty(&self, order: Semantics) -> bool {
@@ -378,13 +388,13 @@ impl<T> PtrCell<T> {
     /// ```rust
     /// use ptr_cell::Semantics;
     ///
-    /// // Initialize a sample number
+    /// // Initialize a test value
     /// const VALUE: Option<u16> = Some(0xFAA);
     ///
-    /// // Wrap the number in a cell
+    /// // Wrap the value in a cell
     /// let cell = ptr_cell::PtrCell::new(VALUE);
     ///
-    /// // Take the number out
+    /// // Take the value out
     /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
     /// ```
     #[inline(always)]
@@ -394,15 +404,13 @@ impl<T> PtrCell<T> {
         unsafe { Self::from_ptr(ptr) }
     }
 
-    /// Constructs a cell that owns the allocation to which `ptr` points
+    /// Constructs a cell that owns the memory to which `ptr` points
     ///
-    /// Passing in a null `ptr` is perfectly valid, as it represents [`None`]. Conversely, a
-    /// non-null `ptr` is treated as [`Some`]
+    /// **A null pointer represents [None]**
     ///
     /// # Safety
     ///
-    /// The memory pointed to by `ptr` must have been allocated in accordance with the [memory
-    /// layout][1] used by [`Box`]
+    /// The allocation must conform the [memory layout][1] used by [`Box`]
     ///
     /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
@@ -411,16 +419,16 @@ impl<T> PtrCell<T> {
     /// ```rust, ignore
     /// use ptr_cell::Semantics;
     ///
-    /// // Initialize a sample number
+    /// // Initialize a test value
     /// const VALUE: Option<u16> = Some(0xFAA);
     ///
-    /// // Allocate the number on the heap and get a pointer to the allocation
+    /// // Allocate the value on the heap and get a pointer to it
     /// let value_ptr = ptr_cell::PtrCell::heap_leak(VALUE);
     ///
     /// // Construct a cell from the pointer
     /// let cell = unsafe { ptr_cell::PtrCell::from_ptr(value_ptr) };
     ///
-    /// // Take the number out
+    /// // Take the value out
     /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
     /// ```
     ///
@@ -440,8 +448,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// If `ptr` is non-null, the memory it points to must have been allocated in accordance with
-    /// the [memory layout][1] used by [`Box`]
+    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
     ///
     /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
@@ -512,21 +519,21 @@ fn non_null<T>(ptr: *mut T) -> Option<*mut T> {
 /// Memory ordering semantics for atomic operations. Determines how value updates are synchronized
 /// between threads
 ///
+/// ### Explanations
+///
 /// Lock-free programming is not easy to grasp. What's more, resources explaining Rust's atomic
 /// orderings in depth are pretty sparse. However, this is not really an issue. Atomics in Rust are
 /// almost identical to their C++ counterparts, of which there exist abundant explanations
 ///
-/// Here are some great sources:
+/// Here are just some of them:
 ///
 /// - Although not meant as an introduction to the release-acquire semantics, this [fantastic
-/// article][1] by Jeff Preshing does a great job at explaining them. It also shows why atomic
-/// memory fences are different from atomic operations
+/// article][1] by Jeff Preshing definitely provides the much-needed clarification
 ///
-/// - Another [great article][2] by Preshing, but this time dedicated to the concept of
-/// release-acquire semantics. It goes into more detail and contains graphics that help make the
-/// reordering guarantees intuitive
+/// - Another [great article][2] by Preshing, but this time dedicated entirely to the concept of the
+/// release-acquire semantics
 ///
-/// - [Memory order][3] from the C++ standards. Way more technical, but has all contracts collected
+/// - [Memory order][3] from the C++ standards. Way more technical, but has all contracts organized
 /// in a single place. Please note that Rust lacks a direct analog to C++'s `memory_order_consume`
 ///
 /// If you're still not sure what semantics to use, choose [`Coupled`](Semantics::Coupled)
@@ -542,7 +549,7 @@ pub enum Semantics {
     /// No synchronization constraints and the best performance
     Relaxed,
 
-    /// [`Release`](Ordering::Release)-[`Acquire`](Ordering::Acquire) coupling semantics
+    /// [`Release`](Ordering::Release) - [`Acquire`](Ordering::Acquire) coupling semantics
     ///
     /// Mild synchronization constraints and fair performance
     ///
@@ -550,7 +557,8 @@ pub enum Semantics {
     /// before the write will also be seen, regardless of their semantics. See the documentation for
     /// `Release` and `Acquire`
     ///
-    /// A common assumption is that this is how memory operations naturally behave. Thus, this is
+    /// A common assumption is that this is how memory operations naturally behave. While it's true
+    /// on some platforms (namely, x86 and x86-64), this behavior is not universal. Thus, this is
     /// likely the semantics you want to use
     Coupled,
 
@@ -573,25 +581,27 @@ macro_rules! operation {
             $($overview)*
             ///
             /// # Returns
-            /// - [`SeqCst`](Ordering::SeqCst) for [`Ordered`](Semantics::Ordered) semantics
-            $($returns)*
             /// - [`Relaxed`](Ordering::Relaxed) for [`Relaxed`](Semantics::Relaxed) semantics
+            $($returns)*
+            /// - [`SeqCst`](Ordering::SeqCst) for [`Ordered`](Semantics::Ordered) semantics
             ///
             /// # Usage
             ///
             /// ```rust
             /// use std::sync::atomic::Ordering;
             ///
+            /// // Copy a variant of Semantics
             /// let semantics = ptr_cell::Semantics::Coupled;
             ///
+            /// // Get the corresponding Ordering
             $($assert)*
             /// ```
             #[inline(always)]
             pub const fn $name(&self) -> Ordering {
                 match self {
-                    Self::Ordered => Ordering::SeqCst,
-                    Self::Coupled => $coupled,
                     Self::Relaxed => Ordering::Relaxed,
+                    Self::Coupled => $coupled,
+                    Self::Ordered => Ordering::SeqCst,
                 }
             }
         }
