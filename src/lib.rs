@@ -291,6 +291,36 @@ impl<T> PtrCell<T> {
         }
     }
 
+    /// Swaps the values of two cells
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a pair of test values
+    /// const ONE: Option<u8> = Some(1);
+    /// const TWO: Option<u8> = Some(2);
+    ///
+    /// // Construct a cell from each value
+    /// let cell_one = ptr_cell::PtrCell::new(ONE);
+    /// let mut cell_two = ptr_cell::PtrCell::new(TWO);
+    ///
+    /// // Swap the cells' contents
+    /// cell_one.swap(&mut cell_two, Semantics::Relaxed);
+    ///
+    /// // Check that the cells now contain each other's values
+    /// assert_eq!(ONE, cell_two.take(Semantics::Relaxed));
+    /// assert_eq!(TWO, cell_one.take(Semantics::Relaxed))
+    /// ```
+    #[inline(always)]
+    pub fn swap(&self, other: &mut Self, order: Semantics) {
+        let other_ptr = other.get_ptr(Semantics::Relaxed);
+
+        let ptr = self.replace_ptr(other_ptr, order);
+        unsafe { other.set_ptr(ptr, Semantics::Relaxed) }
+    }
+
     /// Returns the cell's value, replacing it with [`None`]
     ///
     /// This is an alias for `self.replace(None, order)`
