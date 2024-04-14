@@ -177,14 +177,24 @@ use core::sync::atomic::Ordering;
 /// All methods that access this cell's data through `&self` inherently require a [`Semantics`]
 /// variant, as this is the only way to load the underlying atomic pointer. This parameter is
 /// omitted from the documentation of individual methods due to its universal applicability
+///
+/// # Pointer Safety
+///
+/// When dereferencing a pointer to the cell's value, you must ensure that the memory it points to
+/// hasn't been [reclaimed](Self::heap_reclaim). Notice that calls to [`replace`](Self::replace) and
+/// its derivatives ([`set`](Self::set) and [`take`](Self::take)) automatically reclaim memory. This
+/// includes any calls made from other threads
+///
+/// This also applies to external pointers that the cell now manages, like the `ptr` parameter in
+/// [`from_ptr`](Self::from_ptr)
 #[repr(transparent)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
     ///
     /// # Invariants
     ///
-    /// - **If non-null**: Must point to memory that has been allocated in accordance with the
-    /// [memory layout][1] used by [`Box`]
+    /// - **If non-null**: Must point to memory that conforms to the [memory layout][1] used by
+    ///   [`Box`]
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     value: core::sync::atomic::AtomicPtr<T>,
@@ -365,27 +375,34 @@ impl<T> PtrCell<T> {
 
     /// Returns the pointer to the cell's value, replacing the pointer with `ptr`
     ///
+    /// **WARNING: THIS FUNCTION WAS ERRONEOUSLY MARKED AS SAFE. IT SHOULD BE UNSAFE AND WILL BE
+    /// MARKED AS SUCH IN THE NEXT MAJOR RELEASE**
+    ///
+    /// # Safety
+    ///
+    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
+    ///
     /// # Usage
     ///
     /// ```rust
     /// use ptr_cell::{PtrCell, Semantics};
     ///
-    /// // Allocate a pair of test values on the heap
-    /// let semi = PtrCell::heap_leak(Some(';'));
-    /// let colon = PtrCell::heap_leak(Some(':'));
-    ///
-    /// // Construct a cell from one of the allocations
-    /// let cell = unsafe { PtrCell::from_ptr(semi) };
-    ///
-    /// // Replace the pointer to the allocation
-    /// assert_eq!(cell.replace_ptr(colon, Semantics::Relaxed), semi);
-    ///
-    /// // ...and get one back
-    /// let null = std::ptr::null_mut();
-    /// assert_eq!(cell.replace_ptr(null, Semantics::Relaxed), colon);
-    ///
-    /// // Clean up
     /// unsafe {
+    ///     // Allocate a pair of test values on the heap
+    ///     let semi = PtrCell::heap_leak(Some(';'));
+    ///     let colon = PtrCell::heap_leak(Some(':'));
+    ///
+    ///     // Construct a cell from one of the allocations
+    ///     let cell = PtrCell::from_ptr(semi);
+    ///
+    ///     // Replace the pointer to the allocation
+    ///     assert_eq!(cell.replace_ptr(colon, Semantics::Relaxed), semi);
+    ///
+    ///     // ...and get one back
+    ///     let null = std::ptr::null_mut();
+    ///     assert_eq!(cell.replace_ptr(null, Semantics::Relaxed), colon);
+    ///
+    ///     // Clean up
     ///     PtrCell::heap_reclaim(semi);
     ///     PtrCell::heap_reclaim(colon);
     /// }
@@ -393,6 +410,8 @@ impl<T> PtrCell<T> {
     ///
     /// **Note**: For taking the pointer out of a cell, using [`take_ptr`](Self::take_ptr) is
     /// recommended
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
     pub fn replace_ptr(&self, ptr: *mut T, order: Semantics) -> *mut T {
         self.value.swap(ptr, order.read_write())
@@ -428,9 +447,8 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// When dereferencing the pointer, you must ensure that nothing else can or will modify it.
-    /// This can be achieved, for example, by replacing the shared pointer or using a
-    /// synchronization mechanism
+    /// The cell's value may get deallocated at any moment. Because of this, it's hard to safely
+    /// dereference the resulting pointer. Refer to the [Pointer Safety][1] section for more details
     ///
     /// # Usage
     ///
@@ -443,6 +461,8 @@ impl<T> PtrCell<T> {
     /// // Get the cell's pointer
     /// assert_eq!(cell.get_ptr(Semantics::Relaxed), std::ptr::null_mut())
     /// ```
+    ///
+    /// [1]: https://docs.rs/ptr_cell/2.2.0/ptr_cell/struct.PtrCell.html#pointer-safety
     #[inline(always)]
     pub fn get_ptr(&self, order: Semantics) -> *mut T {
         self.value.load(order.read())
@@ -495,9 +515,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// The allocation must conform the [memory layout][1] used by [`Box`]
-    ///
-    /// Dereferencing `ptr` after this function has been called is undefined behavior
+    /// The memory must conform the [memory layout][1] used by [`Box`]
     ///
     /// # Usage
     ///
@@ -533,7 +551,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
+    /// The memory must conform to the [memory layout][1] used by [`Box`]
     ///
     /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
