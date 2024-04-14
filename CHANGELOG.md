@@ -18,6 +18,8 @@
 
 ## 2.0.0 - 4/6/24
 
+![will it affect me? yes][yes]
+
 ### Added
 - Links to helpful resources in the documentation for `Semantics`
 
@@ -52,3 +54,6 @@
 ### Added
 - `PtrCell`: Thread-safe cell based on atomic pointers
 - `Semantics`: Memory ordering semantics for `PtrCell`'s atomic operations
+
+<!-- References -->
+[yes]: https://img.shields.io/badge/will%20it%20affect%20me%3F-yes-red.svg
