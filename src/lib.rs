@@ -204,8 +204,7 @@ impl<T> PtrCell<T> {
     /// Replaces the cell's value with a new one, constructed from the cell itself using the
     /// provided `new` function
     ///
-    /// Despite the fact that this operation is somewhat complex, it's still entirely atomic. This
-    /// allows it to be safely used in implementations of shared linked-list-like data structures
+    /// Think of this like the `push` method for a linked list, where each node is a `PtrCell`
     ///
     /// # Usage
     ///
