@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0 - 4/14/24
+
+### Added
+- `PtrCell::swap`: Method for swapping the values of two cells
+- `PtrCell::{set, set_ptr}`: Methods for overwriting the cell's value
+- A section discussing the pointer API of `PtrCell` to the cell's documentation
+- A note on the safety of `PtrCell::replace_ptr`
+
+### Changed
+- Clarified the purpose of `PtrCell::map_owner` a bit
+
+## 2.1.1 - 4/10/24
+
+### Changed
+- Used the correct version number in README.md
+
 ## 2.1.0 - 4/10/24
 
 ### Added
