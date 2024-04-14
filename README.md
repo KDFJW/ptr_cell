@@ -37,7 +37,7 @@ Alternatively, you can do this by manually adding the following lines to the fil
 
 ```toml
 [dependencies.ptr_cell]
-version = "2.1.1"
+version = "2.2.0"
 ```
 
 ## Usage

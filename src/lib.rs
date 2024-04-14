@@ -135,16 +135,11 @@ extern crate alloc;
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
+// **MAKE THE PTR SETTERS UNSAFE** (3.0.0)
+// Add a default `std` flag (3.0.0)
+// Implement get by using brief spinlocking (3.0.0)
 // Add "virtually" to "no locks" in the top-level docs (3.0.0)
 // Update the "Limits" section in the top-level docs (3.0.0)
-// Implement get by using brief spinlocking (3.0.0)
-
-// Add `set`, `set_ptr`, `swap` and the inverse of `map_owner` (2.2.0)
-// Explain how the `map_*` methods are equivalent to the `push` and `pop` of a linked list (2.2.0)
-
-// VVVVVVVVVVVVVVVVVVVVVVVV
-// **SPIN HINT!!! (2.2.0)**
-// AAAAAAAAAAAAAAAAAAAAAAAA
 
 /// Thread-safe cell based on atomic pointers
 ///
@@ -177,14 +172,24 @@ use core::sync::atomic::Ordering;
 /// All methods that access this cell's data through `&self` inherently require a [`Semantics`]
 /// variant, as this is the only way to load the underlying atomic pointer. This parameter is
 /// omitted from the documentation of individual methods due to its universal applicability
+///
+/// # Pointer Safety
+///
+/// When dereferencing a pointer to the cell's value, you must ensure that the memory it points to
+/// hasn't been [reclaimed](Self::heap_reclaim). Notice that calls to [`replace`](Self::replace) and
+/// its derivatives ([`set`](Self::set) and [`take`](Self::take)) automatically reclaim memory. This
+/// includes any calls made from other threads
+///
+/// This also applies to external pointers that the cell now manages, like the `ptr` parameter in
+/// [`from_ptr`](Self::from_ptr)
 #[repr(transparent)]
 pub struct PtrCell<T> {
     /// Pointer to the contained value
     ///
     /// # Invariants
     ///
-    /// - **If non-null**: Must point to memory that has been allocated in accordance with the
-    /// [memory layout][1] used by [`Box`]
+    /// - **If non-null**: Must point to memory that conforms to the [memory layout][1] used by
+    ///   [`Box`]
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     value: core::sync::atomic::AtomicPtr<T>,
@@ -194,8 +199,7 @@ impl<T> PtrCell<T> {
     /// Replaces the cell's value with a new one, constructed from the cell itself using the
     /// provided `new` function
     ///
-    /// Despite the fact that this operation is somewhat complex, it's still entirely atomic. This
-    /// allows it to be safely used in implementations of shared linked-list-like data structures
+    /// Think of this like the `push` method for a linked list, where each node is a `PtrCell`
     ///
     /// # Usage
     ///
@@ -274,11 +278,43 @@ impl<T> PtrCell<T> {
                 order.read(),
             );
 
-            match value_ptr_result {
-                Ok(_same) => break,
-                Err(modified) => *value_ptr = modified,
-            }
+            let Err(modified) = value_ptr_result else {
+                break;
+            };
+
+            *value_ptr = modified;
+            core::hint::spin_loop()
         }
+    }
+
+    /// Swaps the values of two cells
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a pair of test values
+    /// const ONE: Option<u8> = Some(1);
+    /// const TWO: Option<u8> = Some(2);
+    ///
+    /// // Construct a cell from each value
+    /// let cell_one = ptr_cell::PtrCell::new(ONE);
+    /// let mut cell_two = ptr_cell::PtrCell::new(TWO);
+    ///
+    /// // Swap the cells' contents
+    /// cell_one.swap(&mut cell_two, Semantics::Relaxed);
+    ///
+    /// // Check that the cells now contain each other's values
+    /// assert_eq!(ONE, cell_two.take(Semantics::Relaxed));
+    /// assert_eq!(TWO, cell_one.take(Semantics::Relaxed))
+    /// ```
+    #[inline(always)]
+    pub fn swap(&self, other: &mut Self, order: Semantics) {
+        let other_ptr = other.get_ptr(Semantics::Relaxed);
+
+        let ptr = self.replace_ptr(other_ptr, order);
+        unsafe { other.set_ptr(ptr, Semantics::Relaxed) }
     }
 
     /// Returns the cell's value, replacing it with [`None`]
@@ -333,6 +369,65 @@ impl<T> PtrCell<T> {
         self.replace_ptr(core::ptr::null_mut(), order)
     }
 
+    /// Sets the cell's value to `slot`
+    ///
+    /// This is an alias for `{ self.replace(slot, order); }`
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a test value
+    /// const VALUE: Option<u16> = Some(1776);
+    ///
+    /// // Construct an empty cell
+    /// let cell: ptr_cell::PtrCell<_> = Default::default();
+    ///
+    /// // Set the cell's value
+    /// cell.set(VALUE, Semantics::Relaxed);
+    ///
+    /// // Check that the value was set
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
+    /// ```
+    #[inline(always)]
+    pub fn set(&self, slot: Option<T>, order: Semantics) {
+        self.replace(slot, order);
+    }
+
+    /// Sets the pointer to the cell's value to `ptr`
+    ///
+    /// # Safety
+    ///
+    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a test value
+    /// const VALUE: Option<u16> = Some(1776);
+    ///
+    /// // Construct an empty cell
+    /// let cell: ptr_cell::PtrCell<_> = Default::default();
+    ///
+    /// // Allocate the value and get a pointer to it
+    /// let ptr = ptr_cell::PtrCell::heap_leak(VALUE);
+    ///
+    /// // Make the cell point to the allocation
+    /// unsafe { cell.set_ptr(ptr, Semantics::Relaxed) };
+    ///
+    /// // Check that the value was set
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
+    /// ```
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
+    #[inline(always)]
+    pub unsafe fn set_ptr(&self, ptr: *mut T, order: Semantics) {
+        self.value.store(ptr, order.write())
+    }
+
     /// Returns the cell's value, replacing it with `slot`
     ///
     /// # Usage
@@ -365,27 +460,34 @@ impl<T> PtrCell<T> {
 
     /// Returns the pointer to the cell's value, replacing the pointer with `ptr`
     ///
+    /// **WARNING: THIS FUNCTION WAS ERRONEOUSLY MARKED AS SAFE. IT SHOULD BE UNSAFE AND WILL BE
+    /// MARKED AS SUCH IN THE NEXT MAJOR RELEASE**
+    ///
+    /// # Safety
+    ///
+    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
+    ///
     /// # Usage
     ///
     /// ```rust
     /// use ptr_cell::{PtrCell, Semantics};
     ///
-    /// // Allocate a pair of test values on the heap
-    /// let semi = PtrCell::heap_leak(Some(';'));
-    /// let colon = PtrCell::heap_leak(Some(':'));
-    ///
-    /// // Construct a cell from one of the allocations
-    /// let cell = unsafe { PtrCell::from_ptr(semi) };
-    ///
-    /// // Replace the pointer to the allocation
-    /// assert_eq!(cell.replace_ptr(colon, Semantics::Relaxed), semi);
-    ///
-    /// // ...and get one back
-    /// let null = std::ptr::null_mut();
-    /// assert_eq!(cell.replace_ptr(null, Semantics::Relaxed), colon);
-    ///
-    /// // Clean up
     /// unsafe {
+    ///     // Allocate a pair of test values on the heap
+    ///     let semi = PtrCell::heap_leak(Some(';'));
+    ///     let colon = PtrCell::heap_leak(Some(':'));
+    ///
+    ///     // Construct a cell from one of the allocations
+    ///     let cell = PtrCell::from_ptr(semi);
+    ///
+    ///     // Replace the pointer to the allocation
+    ///     assert_eq!(cell.replace_ptr(colon, Semantics::Relaxed), semi);
+    ///
+    ///     // ...and get one back
+    ///     let null = std::ptr::null_mut();
+    ///     assert_eq!(cell.replace_ptr(null, Semantics::Relaxed), colon);
+    ///
+    ///     // Clean up
     ///     PtrCell::heap_reclaim(semi);
     ///     PtrCell::heap_reclaim(colon);
     /// }
@@ -393,6 +495,8 @@ impl<T> PtrCell<T> {
     ///
     /// **Note**: For taking the pointer out of a cell, using [`take_ptr`](Self::take_ptr) is
     /// recommended
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     #[inline(always)]
     pub fn replace_ptr(&self, ptr: *mut T, order: Semantics) -> *mut T {
         self.value.swap(ptr, order.read_write())
@@ -428,9 +532,8 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// When dereferencing the pointer, you must ensure that nothing else can or will modify it.
-    /// This can be achieved, for example, by replacing the shared pointer or using a
-    /// synchronization mechanism
+    /// The cell's value may get deallocated at any moment. Because of this, it's hard to safely
+    /// dereference the resulting pointer. Refer to the [Pointer Safety][1] section for more details
     ///
     /// # Usage
     ///
@@ -443,6 +546,8 @@ impl<T> PtrCell<T> {
     /// // Get the cell's pointer
     /// assert_eq!(cell.get_ptr(Semantics::Relaxed), std::ptr::null_mut())
     /// ```
+    ///
+    /// [1]: https://docs.rs/ptr_cell/2.2.0/ptr_cell/struct.PtrCell.html#pointer-safety
     #[inline(always)]
     pub fn get_ptr(&self, order: Semantics) -> *mut T {
         self.value.load(order.read())
@@ -495,9 +600,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// The allocation must conform the [memory layout][1] used by [`Box`]
-    ///
-    /// Dereferencing `ptr` after this function has been called is undefined behavior
+    /// The memory must conform the [memory layout][1] used by [`Box`]
     ///
     /// # Usage
     ///
@@ -533,7 +636,7 @@ impl<T> PtrCell<T> {
     ///
     /// # Safety
     ///
-    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
+    /// The memory must conform to the [memory layout][1] used by [`Box`]
     ///
     /// Dereferencing `ptr` after this function has been called is undefined behavior
     ///
