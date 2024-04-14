@@ -343,6 +343,65 @@ impl<T> PtrCell<T> {
         self.replace_ptr(core::ptr::null_mut(), order)
     }
 
+    /// Sets the cell's value to `slot`
+    ///
+    /// This is an alias for `{ self.replace(slot, order); }`
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a test value
+    /// const VALUE: Option<u16> = Some(1776);
+    ///
+    /// // Construct an empty cell
+    /// let cell: ptr_cell::PtrCell<_> = Default::default();
+    ///
+    /// // Set the cell's value
+    /// cell.set(VALUE, Semantics::Relaxed);
+    ///
+    /// // Check that the value was set
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
+    /// ```
+    #[inline(always)]
+    pub fn set(&self, slot: Option<T>, order: Semantics) {
+        self.replace(slot, order);
+    }
+
+    /// Sets the pointer to the cell's value to `ptr`
+    ///
+    /// # Safety
+    ///
+    /// The memory `ptr` points to must conform to the [memory layout][1] used by [`Box`]
+    ///
+    /// # Usage
+    ///
+    /// ```rust
+    /// use ptr_cell::Semantics;
+    ///
+    /// // Initialize a test value
+    /// const VALUE: Option<u16> = Some(1776);
+    ///
+    /// // Construct an empty cell
+    /// let cell: ptr_cell::PtrCell<_> = Default::default();
+    ///
+    /// // Allocate the value and get a pointer to it
+    /// let ptr = ptr_cell::PtrCell::heap_leak(VALUE);
+    ///
+    /// // Make the cell point to the allocation
+    /// unsafe { cell.set_ptr(ptr, Semantics::Relaxed) };
+    ///
+    /// // Check that the value was set
+    /// assert_eq!(cell.take(Semantics::Relaxed), VALUE)
+    /// ```
+    ///
+    /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
+    #[inline(always)]
+    pub unsafe fn set_ptr(&self, ptr: *mut T, order: Semantics) {
+        self.value.store(ptr, order.write())
+    }
+
     /// Returns the cell's value, replacing it with `slot`
     ///
     /// # Usage
