@@ -135,16 +135,11 @@ extern crate alloc;
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
+// **MAKE THE PTR SETTERS UNSAFE** (3.0.0)
+// Add a default `std` flag (3.0.0)
+// Implement get by using brief spinlocking (3.0.0)
 // Add "virtually" to "no locks" in the top-level docs (3.0.0)
 // Update the "Limits" section in the top-level docs (3.0.0)
-// Implement get by using brief spinlocking (3.0.0)
-
-// Add `set`, `set_ptr`, `swap` and the inverse of `map_owner` (2.2.0)
-// Explain how the `map_*` methods are equivalent to the `push` and `pop` of a linked list (2.2.0)
-
-// VVVVVVVVVVVVVVVVVVVVVVVV
-// **SPIN HINT!!! (2.2.0)**
-// AAAAAAAAAAAAAAAAAAAAAAAA
 
 /// Thread-safe cell based on atomic pointers
 ///
@@ -283,10 +278,12 @@ impl<T> PtrCell<T> {
                 order.read(),
             );
 
-            match value_ptr_result {
-                Ok(_same) => break,
-                Err(modified) => *value_ptr = modified,
-            }
+            let Err(modified) = value_ptr_result else {
+                break;
+            };
+
+            *value_ptr = modified;
+            core::hint::spin_loop()
         }
     }
 
