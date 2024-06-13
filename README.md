@@ -74,8 +74,9 @@ other means, like [fences][13]. As always, the documentation for each item conta
 
 ## Examples
 
-Find the maximum value of a sequence of numbers by concurrently processing both of the sequence's
-halves
+Find the maximum value of a sequence by concurrently processing its halves. Notice how the code
+doesn't read the shared value. Instead, it utilizes moves and corrects past actions as new data
+comes in
 
 ```rust
 fn main() {
@@ -142,11 +143,18 @@ where
 
 ## Contributing
 
-Yes, please! See [CONTRIBUTING.md][14]
+Yes, please! See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-Either CC0 1.0 Universal or the Apache License 2.0. See [LICENSE.md][15] for more details
+Copyright 2024 Nikolay Levkovsky
+
+Individual contributions are copyright by the respective contributors
+
+---
+
+This project is licensed under Creative Commons CC0 1.0 Universal (CC0 1.0) as found in
+[LICENSE.txt](LICENSE.txt). CC0 is a public domain dedication tool provided by Creative Commons
 
 <!-- References -->
 [1]: https://docs.rs/ptr_cell/latest/ptr_cell/struct.PtrCell.html
@@ -162,5 +170,3 @@ Either CC0 1.0 Universal or the Apache License 2.0. See [LICENSE.md][15] for mor
 [11]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Coupled
 [12]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Relaxed
 [13]: https://doc.rust-lang.org/std/sync/atomic/fn.fence.html
-[14]: CONTRIBUTING.md
-[15]: LICENSE.md
