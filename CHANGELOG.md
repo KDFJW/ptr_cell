@@ -1,20 +1,25 @@
 # Changelog
 
+## 3.0.0 - TBD
+
+### Changed
+- The _entire_ documentation
+
 ## 2.2.0 - 4/14/24
 
 ### Added
 - `PtrCell::swap`: Method for swapping the values of two cells
 - `PtrCell::{set, set_ptr}`: Methods for overwriting the cell's value
-- A section discussing the pointer API of `PtrCell` to the cell's documentation
-- A note on the safety of `PtrCell::replace_ptr`
+- A section discussing the pointer API of `PtrCell` in the cell's documentation
+- A warning regarding the safety of `PtrCell::replace_ptr`
 
 ### Changed
-- Clarified the purpose of `PtrCell::map_owner` a bit
+- The documentation of `PtrCell::map_owner`
 
 ## 2.1.1 - 4/10/24
 
-### Changed
-- Used the correct version number in README.md
+### Fixed
+- The version number in README.md
 
 ## 2.1.0 - 4/10/24
 
@@ -23,11 +28,11 @@
 - `PtrCell::heap_reclaim`: Inverse of `PtrCell::heap_leak`
 - `PtrCell::{from_ptr, replace_ptr, take_ptr}`: Pointer-based alternatives to some existing methods
 - `PtrCell::get_ptr`: Getter for the pointer of `PtrCell`
-- A section on `Semantics` in `PtrCell`'s methods to the cell's documentation
-- Comments to the usage of `Semantics::{read, read_write, write}`
+- A section on the relationship between `PtrCell` and `Semantics` in the cell's documentation
+- Comments in the usage of `Semantics::{read, read_write, write}`
 
 ### Changed
-- Used cleaner examples for `PtrCell::{is_empty, replace}`
+- The examples of `PtrCell::{is_empty, replace}`
 
 ### Fixed
 - Broken links in the documentation
@@ -43,12 +48,14 @@
 - `PtrCell` now has the same in-memory representation as a `*mut T`
 - `PtrCell::new` doesn't require a `Semantics` variant anymore
 - `PtrCell::{is_empty, replace, take, map_owner}` now require a `Semantics` variant
-- The documentation for `Semantics::Coupled` now better reflects the reality
+
+### Fixed
+- The documentation for `Semantics::Coupled`
 
 ## 1.2.1 - 3/25/24
 
 ### Fixed
-- Removed the unnecessary `T: Debug` bound from the `PtrCell`'s `Debug` implementation
+- The unnecessary `T: Debug` bound in `PtrCell`'s `Debug` implementation
 
 ## 1.2.0 - 3/24/24
 
@@ -62,13 +69,11 @@
 
 ## 1.0.1 - 3/22/24
 
-### Changed
+### Fixed
 - The top-level example now uses `Semantics::Relaxed` instead of `Semantics::Coupled`
 
 ## 1.0.0 - 3/21/24
 
-### Added
-- `PtrCell`: Thread-safe cell based on atomic pointers
-- `Semantics`: Memory ordering semantics for `PtrCell`'s atomic operations
+Initial release
 
 [yes]: https://img.shields.io/badge/will%20it%20affect%20me%3F-yes-red.svg
