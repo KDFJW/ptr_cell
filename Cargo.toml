@@ -9,6 +9,3 @@ repository = "https://github.com/KDFJW/ptr_cell"
 license = "CC0-1.0"
 keywords = ["thread-safe", "atomic", "cell", "no_std"]
 categories = ["memory-management", "data-structures", "concurrency", "no-std"]
-
-[features]
-std = []
