@@ -9,7 +9,7 @@ support for `no_std`, take a look at the standard [`Mutex`][4] and [`RwLock`][5]
 
 #### Offers:
 
-- **Familiarity**: `PtrCell`'s API was modelled after `std`'s [Cell](core::cell::Cell)
+- **Familiarity**: `PtrCell`'s API was modelled after `std`'s [Cell][6]
 
 - **Easy Concurrency**: No more `Arc<Mutex<T>>`, `Arc::clone()`, and `Mutex::lock().expect()`! Leave
 the data static and then point to it when you need to. It's a _single instruction_ on most modern
@@ -17,10 +17,10 @@ platforms
 
 #### Limitations:
 
-- **Heap Allocation**: Every value you insert into `PtrCell` must first be allocated using [`Box`].
-Allocating on the heap is, computationally, a moderately expensive operation. To address this, the
-cell exposes a pointer API that can be used to avoid allocating the same values multiple times.
-Future releases will primarily rely on the stack
+- **Heap Allocation**: Every value you insert into `PtrCell` must first be allocated using
+[`Box`][7]. Allocating on the heap is, computationally, a moderately expensive operation. To address
+this, the cell exposes a pointer API that can be used to avoid allocating the same values multiple
+times. Future releases will primarily rely on the stack
 
 ## Table of Contents
 - [Installation](#installation)
@@ -53,18 +53,18 @@ assert_eq!(cell.take(Relaxed), Some(2047))
 ## Semantics
 
 `PtrCell` allows you to specify memory ordering semantics for its internal atomic operations through
-the [`Semantics`][6] enum. Each variant is different in how it balances synchronization and
+the [`Semantics`][8] enum. Each variant is different in how it balances synchronization and
 performace. Here's a comparison of the available semantics:
 
 | Variant | Overhead | Synchronization |
 |---|---|---|
-| [`Relaxed`][7] | Negligible | None |
-| [`Coupled`][8] | Acceptable | Intuitive |
-| [`Ordered`][9] | Noticeable | Strict |
+| [`Relaxed`][9] | Negligible | None |
+| [`Coupled`][10] | Acceptable | Intuitive |
+| [`Ordered`][11] | Noticeable | Strict |
 
 `Coupled` is what you'd typically use. However, other orderings have their use cases too. For
 example, the `Relaxed` semantics could be useful when the operations are already synchronized
-through other means, like [fences][10]. As always, the documentation for each item contains more
+through other means, like [fences][12]. As always, the documentation for each item contains more
 details
 
 ## Examples
@@ -141,8 +141,10 @@ This project is licensed under Creative Commons CC0 1.0 Universal (CC0 1.0) as f
 [3]: https://groups.google.com/g/comp.std.c/c/ycpVKxTZkgw/m/S2hHdTbv4d8J?hl=en
 [4]: https://doc.rust-lang.org/std/sync/struct.Mutex.html
 [5]: https://doc.rust-lang.org/std/sync/struct.RwLock.html
-[6]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html
-[7]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Relaxed
-[8]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Coupled
-[9]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Ordered
-[10]: https://doc.rust-lang.org/std/sync/atomic/fn.fence.html
+[6]: https://doc.rust-lang.org/std/cell/struct.Cell.html
+[7]: https://doc.rust-lang.org/std/boxed/struct.Box.html
+[8]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html
+[9]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Relaxed
+[10]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Coupled
+[11]: https://docs.rs/ptr_cell/latest/ptr_cell/enum.Semantics.html#variant.Ordered
+[12]: https://doc.rust-lang.org/std/sync/atomic/fn.fence.html
