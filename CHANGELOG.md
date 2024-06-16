@@ -1,9 +1,10 @@
 # Changelog
 
-## 3.0.0 - TBD
+## 2.2.1 - 6/17/24
 
 ### Changed
-- The _entire_ documentation
+- Overhauled the _entire_ documentation
+- PtrCell::{heap_leak, new, replace_ptr, replace} were annotated with `must_use` to prevent bugs
 
 ## 2.2.0 - 4/14/24
 
@@ -11,15 +12,15 @@
 - `PtrCell::swap`: Method for swapping the values of two cells
 - `PtrCell::{set, set_ptr}`: Methods for overwriting the cell's value
 - A section discussing the pointer API of `PtrCell` in the cell's documentation
-- A warning regarding the safety of `PtrCell::replace_ptr`
+- A warning about the safety of `PtrCell::replace_ptr`
 
 ### Changed
-- The documentation of `PtrCell::map_owner`
+- Updated the documentation of `PtrCell::map_owner`
 
 ## 2.1.1 - 4/10/24
 
 ### Fixed
-- The version number in README.md
+- README now contains the correct version number
 
 ## 2.1.0 - 4/10/24
 
@@ -32,10 +33,10 @@
 - Comments in the usage of `Semantics::{read, read_write, write}`
 
 ### Changed
-- The examples of `PtrCell::{is_empty, replace}`
+- `PtrCell::{is_empty, replace}` got better examples
 
 ### Fixed
-- Broken links in the documentation
+- Fixed broken links in the documentation
 
 ## 2.0.0 - 4/6/24
 
@@ -50,12 +51,12 @@
 - `PtrCell::{is_empty, replace, take, map_owner}` now require a `Semantics` variant
 
 ### Fixed
-- The documentation for `Semantics::Coupled`
+- The documentation for `Semantics::Coupled` is now closer to reality
 
 ## 1.2.1 - 3/25/24
 
 ### Fixed
-- The unnecessary `T: Debug` bound in `PtrCell`'s `Debug` implementation
+- Removed the unnecessary `T: Debug` bound in `PtrCell`'s `Debug` implementation
 
 ## 1.2.0 - 3/24/24
 

@@ -9,12 +9,19 @@
 //! require support for `no_std`, take a look at the standard [`Mutex`][3] and [`RwLock`][4] instead
 //!
 //! #### Offers:
-//! - **Ease of use**: The API is fairly straightforward
-//! - **Performance**: All algorithms are at most a couple of instructions long
 //!
-//! #### Limits:
-//! - **Access**: To see what's stored inside a cell, you must either take the value out of it or
-//! provide exclusive access (`&mut`) to the cell
+//! - **Familiarity**: `PtrCell`'s API was modelled after `std`'s [Cell](core::cell::Cell)
+//!
+//! - **Easy Concurrency**: No more `Arc<Mutex<T>>`, `Arc::clone()`, and `Mutex::lock().expect()`!
+//! Leave the data static and then point to it when you need to. It's a _single instruction_ on most
+//! modern platforms
+//!
+//! #### Limitations:
+//!
+//! - **Heap Allocation**: Every value you insert into `PtrCell` must first be allocated using
+//! [`Box`]. Allocating on the heap is, computationally, a moderately expensive operation. To
+//! address this, the cell exposes a pointer API that can be used to avoid allocating the same
+//! values multiple times. Future releases will primarily rely on the stack
 //!
 //! ## Usage
 //!
@@ -103,26 +110,39 @@
 //! [4]: https://doc.rust-lang.org/std/sync/struct.RwLock.html
 
 #![no_std]
-#![warn(missing_docs)]
+#![warn(missing_docs, clippy::all, clippy::pedantic, clippy::cargo)]
+#![allow(clippy::must_use_candidate)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 
 extern crate alloc;
 
 use alloc::boxed::Box;
 use core::sync::atomic::Ordering;
 
-// **MAKE PTR SETTERS UNSAFE** (3.0.0)
-// Add a default `std` flag (3.0.0)
-// Implement get by using brief spinlocking (3.0.0)
-// Add "virtually" to "no locks" in the top-level docs (3.0.0)
-// Update the "Limits" section in the top-level docs (mention Copy types) (3.0.0)
-// Add docs on the unsafety of writing through some of the raw pointers (3.0.0)
+// 3.0.0:
+// - Just fix `replace_ptr` already!!! \
+// - Make `Semantics` exhaustive       |
+// - Add the default `std` feature     /
+// - Figure out how to properly generalize to the stack (see notes below)
+// - Implement `get`, `update`, and some traits by using brief spinlocking
+// - Add "virtually" to "no locks" in the top-level docs (very important)
+// - Add `from_mut` like on std's Cell
+
+// It's possible to ditch heap allocation entirely if we pre-allocate a buffer of type T.
+// Pre-allocating an array of N buffers (const N: usize) could amortize performance losses during
+// periods of high contention
+
+// Top-level:
+//
+// ## Features
+//
+// - **`std`**: Enables everything that may depend on the standard library. Currently, there are no
+// such items. Could optimize performace in future updates
 
 /// Thread-safe cell based on atomic pointers
 ///
 /// This type stores its data externally by _leaking_ it with [`Box`]. Synchronization is achieved
 /// by atomically manipulating pointers to the data
-///
-/// This type has the same in-memory representation as a `*mut T`
 ///
 /// # Usage
 ///
@@ -171,26 +191,6 @@ impl<T> PtrCell<T> {
     /// ```rust
     /// use ptr_cell::{PtrCell, Semantics};
     ///
-    /// fn main() {
-    ///     let cell = PtrCell::default();
-    ///
-    ///     for value in "Hachó en México".split_whitespace().rev() {
-    ///         cell.map_owner(|next| Node { value, next }, Semantics::Relaxed);
-    ///     }
-    ///
-    ///     let Node { value, mut next } = cell
-    ///         .take(Semantics::Relaxed)
-    ///         .expect("Some values should've been inserted into the cell");
-    ///
-    ///     let mut decoded = value.to_string();
-    ///     while let Some(node) = next.take(Semantics::Relaxed) {
-    ///         decoded.extend([" ", node.value]);
-    ///         next = node.next
-    ///     }
-    ///
-    ///     assert_eq!(decoded, "Hachó en México")
-    /// }
-    ///
     /// struct Node<T> {
     ///     pub value: T,
     ///     pub next: PtrCell<Self>,
@@ -201,6 +201,24 @@ impl<T> PtrCell<T> {
     ///         &mut self.next
     ///     }
     /// }
+    ///
+    /// let cell = PtrCell::default();
+    ///
+    /// for value in "Hachó en México".split_whitespace().rev() {
+    ///     cell.map_owner(|next| Node { value, next }, Semantics::Relaxed);
+    /// }
+    ///
+    /// let Node { value, mut next } = cell
+    ///     .take(Semantics::Relaxed)
+    ///     .expect("Some values should've been inserted into the cell");
+    ///
+    /// let mut decoded = value.to_string();
+    /// while let Some(node) = next.take(Semantics::Relaxed) {
+    ///     decoded.extend([" ", node.value]);
+    ///     next = node.next
+    /// }
+    ///
+    /// assert_eq!(decoded, "Hachó en México")
     /// ```
     ///
     /// [1]: https://doc.rust-lang.org/std/string/struct.String.html
@@ -231,7 +249,7 @@ impl<T> PtrCell<T> {
             };
 
             *value_ptr = modified;
-            core::hint::spin_loop()
+            core::hint::spin_loop();
         }
     }
 
@@ -250,12 +268,14 @@ impl<T> PtrCell<T> {
     /// assert_eq!(two.take(Relaxed), Some(1));
     /// assert_eq!(one.take(Relaxed), Some(2))
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn swap(&self, other: &mut Self, order: Semantics) {
         let other_ptr = other.get_ptr(Semantics::Relaxed);
 
-        let ptr = self.replace_ptr(other_ptr, order);
-        unsafe { other.set_ptr(ptr, Semantics::Relaxed) }
+        unsafe {
+            let ptr = self.replace_ptr(other_ptr, order);
+            other.set_ptr(ptr, Semantics::Relaxed);
+        }
     }
 
     /// Takes out the cell's value
@@ -270,7 +290,7 @@ impl<T> PtrCell<T> {
     /// assert_eq!(cell.take(Relaxed), Some(45));
     /// assert_eq!(cell.take(Relaxed), None)
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn take(&self, order: Semantics) -> Option<T> {
         self.replace(None, order)
     }
@@ -294,7 +314,7 @@ impl<T> PtrCell<T> {
     /// ```
     ///
     /// [1]: https://docs.rs/ptr_cell/latest/ptr_cell/struct.PtrCell.html#pointer-safety
-    #[inline(always)]
+    #[inline]
     pub fn take_ptr(&self, order: Semantics) -> *mut T {
         self.replace_ptr(core::ptr::null_mut(), order)
     }
@@ -311,9 +331,9 @@ impl<T> PtrCell<T> {
     ///
     /// assert_eq!(cell.take(Relaxed), Some(1776))
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn set(&self, slot: Option<T>, order: Semantics) {
-        self.replace(slot, order);
+        let _ = self.replace(slot, order);
     }
 
     /// Inserts a pointer into the cell
@@ -336,9 +356,9 @@ impl<T> PtrCell<T> {
     /// ```
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
-    #[inline(always)]
+    #[inline]
     pub unsafe fn set_ptr(&self, ptr: *mut T, order: Semantics) {
-        self.value.store(ptr, order.write())
+        self.value.store(ptr, order.write());
     }
 
     /// Replaces the cell's value
@@ -353,18 +373,21 @@ impl<T> PtrCell<T> {
     /// assert_eq!(cell.replace(Some('b'), Relaxed), Some('a'));
     /// assert_eq!(cell.take(Relaxed), Some('b'))
     /// ```
-    #[inline(always)]
+    #[inline]
+    #[must_use = "use `.set()` if you don't need the old value"]
     pub fn replace(&self, slot: Option<T>, order: Semantics) -> Option<T> {
         let new_leak = Self::heap_leak(slot);
-        let old_leak = self.replace_ptr(new_leak, order);
 
-        unsafe { Self::heap_reclaim(old_leak) }
+        unsafe {
+            let old_leak = self.replace_ptr(new_leak, order);
+            Self::heap_reclaim(old_leak)
+        }
     }
 
     /// Replaces the cell's pointer
     ///
-    /// **WARNING: THIS FUNCTION WAS ERRONEOUSLY MARKED AS SAFE. IT SHOULD BE UNSAFE AND WILL BE
-    /// MARKED AS SUCH IN THE NEXT MAJOR RELEASE**
+    /// **WARNING: THIS FUNCTION WAS ERRONEOUSLY LEFT SAFE. IT'S UNSAFE AND WILL BE MARKED AS SUCH
+    /// IN THE NEXT MAJOR RELEASE**
     ///
     /// # Safety
     ///
@@ -393,7 +416,8 @@ impl<T> PtrCell<T> {
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
     /// [2]: https://docs.rs/ptr_cell/latest/ptr_cell/struct.PtrCell.html#pointer-safety
-    #[inline(always)]
+    #[inline]
+    #[must_use = "use `.set_ptr()` if you don't need the old pointer"]
     pub fn replace_ptr(&self, ptr: *mut T, order: Semantics) -> *mut T {
         self.value.swap(ptr, order.read_write())
     }
@@ -412,7 +436,7 @@ impl<T> PtrCell<T> {
     ///
     /// assert_eq!(text.take(Relaxed), Some("Pointer".to_string()))
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn get_mut(&mut self) -> Option<&mut T> {
         let leak = *self.value.get_mut();
 
@@ -436,7 +460,7 @@ impl<T> PtrCell<T> {
     /// ```
     ///
     /// [1]: https://docs.rs/ptr_cell/latest/ptr_cell/struct.PtrCell.html#pointer-safety
-    #[inline(always)]
+    #[inline]
     pub fn get_ptr(&self, order: Semantics) -> *mut T {
         self.value.load(order.read())
     }
@@ -452,7 +476,7 @@ impl<T> PtrCell<T> {
     ///
     /// assert!(cell.is_empty(Relaxed))
     /// ```
-    #[inline(always)]
+    #[inline]
     pub fn is_empty(&self, order: Semantics) -> bool {
         self.get_ptr(order).is_null()
     }
@@ -469,7 +493,8 @@ impl<T> PtrCell<T> {
     /// assert_eq!(cell.take(Relaxed), Some(0xFAA));
     /// assert!(cell.is_empty(Relaxed))
     /// ```
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn new(slot: Option<T>) -> Self {
         let ptr = Self::heap_leak(slot);
 
@@ -497,7 +522,7 @@ impl<T> PtrCell<T> {
     /// ```
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
-    #[inline(always)]
+    #[inline]
     pub const unsafe fn from_ptr(ptr: *mut T) -> Self {
         let value = core::sync::atomic::AtomicPtr::new(ptr);
 
@@ -525,9 +550,9 @@ impl<T> PtrCell<T> {
     /// ```
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
-    #[inline(always)]
+    #[inline]
     pub unsafe fn heap_reclaim(ptr: *mut T) -> Option<T> {
-        non_null(ptr).map(|ptr| *Box::from_raw(ptr))
+        non_null(ptr).map(|ptr| *unsafe { Box::from_raw(ptr) })
     }
 
     /// Leaks a value to the heap
@@ -547,7 +572,8 @@ impl<T> PtrCell<T> {
     /// ```
     ///
     /// [1]: https://doc.rust-lang.org/std/boxed/index.html#memory-layout
-    #[inline(always)]
+    #[inline]
+    #[must_use]
     pub fn heap_leak(slot: Option<T>) -> *mut T {
         match slot {
             Some(value) => Box::into_raw(Box::new(value)),
@@ -567,14 +593,14 @@ impl<T> core::fmt::Debug for PtrCell<T> {
 
 impl<T> Default for PtrCell<T> {
     /// Constructs an empty cell
-    #[inline(always)]
+    #[inline]
     fn default() -> Self {
         Self::new(None)
     }
 }
 
 impl<T> Drop for PtrCell<T> {
-    #[inline(always)]
+    #[inline]
     fn drop(&mut self) {
         let ptr = *self.value.get_mut();
 
@@ -583,29 +609,28 @@ impl<T> Drop for PtrCell<T> {
 }
 
 impl<T> From<T> for PtrCell<T> {
-    #[inline(always)]
+    #[inline]
     fn from(value: T) -> Self {
         Self::new(Some(value))
     }
 }
 
 /// Returns `ptr` if it's non-null
-#[inline(always)]
+#[inline]
 fn non_null<T>(ptr: *mut T) -> Option<*mut T> {
-    match ptr.is_null() {
-        true => None,
-        false => Some(ptr),
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
     }
 }
-
-// `Semantics` should be exhaustive
 
 /// Memory ordering semantics for atomic operations
 ///
 /// Each variant represents a group of compatible [orderings](Ordering). They determine how value
 /// updates are synchronized between threads
 #[non_exhaustive]
-#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Default)]
 pub enum Semantics {
     /// [`Relaxed`](Ordering::Relaxed) semantics
     ///
@@ -623,6 +648,7 @@ pub enum Semantics {
     ///
     /// Set this when using a value in multiple threads, unless certain that you need different
     /// semantics
+    #[default]
     Coupled,
 
     /// [`SeqCst`](Ordering::SeqCst) semantics
@@ -655,7 +681,7 @@ macro_rules! operation {
             ///
             $($assert)*
             /// ```
-            #[inline(always)]
+            #[inline]
             pub const fn $name(&self) -> Ordering {
                 match self {
                     Self::Relaxed => Ordering::Relaxed,
@@ -693,11 +719,3 @@ operation!(read with Ordering::Acquire: {
 }, {
     ///assert_eq!(Coupled.read(), Ordering::Acquire)
 });
-
-// Is it here because of the dumb inline only? Can be derived
-impl Default for Semantics {
-    #[inline(always)]
-    fn default() -> Self {
-        Self::Coupled
-    }
-}
