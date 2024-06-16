@@ -1,4 +1,4 @@
-# Simple thread-safe cell
+# Simple thread-safe cell for Rust
 
 [`PtrCell`][1] is an atomic cell type that allows safe, concurrent access to shared data. No
 [`std`][2], no data races, no [nasal demons][3] (undefined behavior), and most importantly, no locks
@@ -8,12 +8,19 @@ of it. If you want to concurrently update a value through mutable references and
 support for `no_std`, take a look at the standard [`Mutex`][4] and [`RwLock`][5] instead
 
 #### Offers:
-- **Ease of use**: The API is fairly straightforward
-- **Performance**: All algorithms are at most a couple of instructions long
 
-#### Limits:
-- **Access**: To see what's stored inside a cell, you must either take the value out of it or
-provide exclusive access (`&mut`) to the cell
+- **Familiarity**: `PtrCell`'s API was modelled after `std`'s [Cell](core::cell::Cell)
+
+- **Easy Concurrency**: No more `Arc<Mutex<T>>`, `Arc::clone()`, and `Mutex::lock().expect()`! Leave
+the data static and then point to it when you need to. It's a _single instruction_ on most modern
+platforms
+
+#### Limitations:
+
+- **Heap Allocation**: Every value you insert into `PtrCell` must first be allocated using [`Box`].
+Allocating on the heap is, computationally, a moderately expensive operation. To address this, the
+cell exposes a pointer API that can be used to avoid allocating the same values multiple times.
+Future releases will primarily rely on the stack
 
 ## Table of Contents
 - [Installation](#installation)
@@ -115,6 +122,8 @@ where
 ## Contributing
 
 Yes, please! See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+Authors of merged pull requests will be rewarded with snacks
 
 ## License
 
